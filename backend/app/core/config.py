@@ -825,13 +825,11 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         default="10.0.4",
         description="Tag or branch of kicad-packages3d to clone; match the KiCad version.",
     )
-    PRISM_KICAD_LIBRARIES: str = Field(
+    PRISM_KICAD_LIBRARY_MOUNT_ROOT: str = Field(
         default="",
         description=(
-            "JSON list of libraries behind KiCad path variables a board references. Each entry: "
-            '"name", "variables" (list), and either "git" + "ref" (+ optional "subdir") or "path" '
-            "(a folder already on the host). A declared library wins over the same variable in the "
-            "environment."
+            "Folder libraries added as a path in Settings must live under (mount a host folder there). "
+            "Empty: path libraries are off; git libraries need no mount."
         ),
     )
 

@@ -1,8 +1,7 @@
-"""KiCad path libraries: configuration, priority over the environment, readiness and the fetch lock."""
+"""KiCad path libraries: validation, priority over the environment, readiness, the fetch lock and the consumers."""
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import tempfile
@@ -16,20 +15,38 @@ from app.services import kicad_tools
 from app.services.design_bundle import stage_models
 
 
-def configure(root: Path, **overrides: object):
+def configure(root: Path, *rows: object, mount: Path | None = None, **overrides: object):
+    """Settings rooted at ``root`` with ``rows`` as the administrator's declared libraries."""
+
     values = {
         "KICAD_PROJECTS_ROOT": str(root),
         "KICAD_3D_LIBRARY_ENABLED": False,
         "KICAD_3D_LIBRARY_DIR": "",
         "KICAD_3D_LIBRARY_REF": "10.0.4",
-        "PRISM_KICAD_LIBRARIES": "",
+        "PRISM_KICAD_LIBRARY_MOUNT_ROOT": str(mount) if mount else "",
         **overrides,
     }
-    return mock.patch.multiple(libs.settings, **values)
+    patches = mock.patch.multiple(libs.settings, **values)
+    rows_patch = mock.patch.object(libs, "declared_rows", return_value=list(rows))
+
+    class Both:
+        def __enter__(self):
+            patches.__enter__()
+            rows_patch.__enter__()
+
+        def __exit__(self, *exc):
+            rows_patch.__exit__(*exc)
+            patches.__exit__(*exc)
+
+    return Both()
 
 
-def declare(*entries: object) -> str:
-    return json.dumps(list(entries))
+def git(name: str = "lsf", variables=("LSF_KICAD_LIB",), ref: str = "v1", **extra: object) -> dict:
+    return {"name": name, "variables": list(variables), "git": "https://example/lsf.git", "ref": ref, **extra}
+
+
+def folder(name: str, variables, path: str) -> dict:
+    return {"name": name, "variables": list(variables), "path": path}
 
 
 class TempRoot(unittest.TestCase):
@@ -39,16 +56,55 @@ class TempRoot(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
 
 
+class ValidationTests(TempRoot):
+    def test_a_git_library(self) -> None:
+        library = libs.validate_entry(git(subdir="lib/models/"))
+        self.assertEqual((library.git, library.ref, library.subdir), ("https://example/lsf.git", "v1", "lib/models"))
+
+    def test_only_https_urls(self) -> None:
+        for url in ("http://example/x.git", "git@example:x.git", "file:///x", "ssh://example/x", ""):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                libs.validate_entry({**git(), "git": url})
+
+    def test_a_ref_cannot_be_an_option(self) -> None:
+        with self.assertRaises(ValueError):
+            libs.validate_entry(git(ref="--upload-pack=x"))
+
+    def test_a_path_is_relative_to_the_mount_root(self) -> None:
+        self.assertEqual(libs.validate_entry(folder("m", ["M"], "lsf/lib/")).path, "lsf/lib")
+        for path in ("/abs", "../up", "a/../b", "C:/x", "C:\\x", " "):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                libs.validate_entry(folder("m", ["M"], path))
+
+    def test_the_other_fields(self) -> None:
+        bad = (
+            {"name": "no source", "variables": ["A"]},
+            {**git(), "path": "p"},
+            {**git(), "variables": []},
+            {**git(), "variables": ["1X"]},
+            {**git(), "variables": ["A", "A"]},
+            {**git(), "name": "bad name"},
+            {**git(), "name": ""},
+            {**git(), "subdir": "../x"},
+            {**git(), "ref": ""},
+            "text",
+        )
+        for raw in bad:
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                libs.validate_entry(raw)
+
+
 class ConfigurationTests(TempRoot):
     def test_nothing_declared(self) -> None:
         with configure(self.root):
             self.assertEqual(libs.configured(), ((), []))
             self.assertEqual(libs.resolve().variables, {})
 
-    def test_preset_binds_both_stock_variables(self) -> None:
+    def test_preset_binds_both_stock_variables_and_is_locked(self) -> None:
         with configure(self.root, KICAD_3D_LIBRARY_ENABLED=True):
             (library,), problems = libs.configured()
             self.assertEqual(problems, [])
+            self.assertTrue(library.locked)
             self.assertEqual(library.variables, libs.STOCK_VARIABLES)
             self.assertEqual(library.source, f"{libs.STOCK_REPOSITORY}@10.0.4#")
             self.assertEqual(library.clone_dir, self.root / ".kicad-prism" / "libraries" / "kicad-packages3d")
@@ -58,58 +114,67 @@ class ConfigurationTests(TempRoot):
             (library,), _ = libs.configured()
             self.assertEqual(library.clone_dir, self.root / "x")
 
-    def test_bad_entries_are_reported_and_left_out(self) -> None:
-        raw = declare(
-            {"name": "ok", "variables": ["LSF"], "path": str(self.root)},
-            {"name": "no source", "variables": ["A"]},
-            {"name": "both", "variables": ["B"], "git": "u", "ref": "r", "path": "p"},
-            {"name": "novar", "variables": [], "path": "p"},
-            {"name": "badvar", "variables": ["1X"], "path": "p"},
-            {"name": "noref", "variables": ["C"], "git": "u"},
-            {"name": "escape", "variables": ["D"], "git": "u", "ref": "r", "subdir": "../x"},
-            "text",
-        )
-        with configure(self.root, PRISM_KICAD_LIBRARIES=raw):
+    def test_a_bad_row_is_reported_and_left_out(self) -> None:
+        with configure(self.root, git(), {"name": "broken", "variables": []}):
             libraries, problems = libs.configured()
-        self.assertEqual([library.name for library in libraries], ["ok"])
-        self.assertEqual(len(problems), 7)
-
-    def test_not_json(self) -> None:
-        with configure(self.root, PRISM_KICAD_LIBRARIES="{nope"):
-            libraries, problems = libs.configured()
-        self.assertEqual(libraries, ())
-        self.assertIn("not a JSON list", problems[0])
+        self.assertEqual([library.name for library in libraries], ["lsf"])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("broken", problems[0])
 
     def test_duplicate_name_and_claimed_variable(self) -> None:
-        raw = declare(
-            {"name": "a", "variables": ["X"], "path": "/a"},
-            {"name": "a", "variables": ["Y"], "path": "/b"},
-            {"name": "b", "variables": ["X"], "path": "/c"},
+        rows = (
+            folder("a", ["X"], "a"),
+            folder("a", ["Y"], "b"),
+            folder("b", ["X"], "c"),
         )
-        with configure(self.root, PRISM_KICAD_LIBRARIES=raw):
+        with configure(self.root, *rows):
             libraries, problems = libs.configured()
         self.assertEqual([library.name for library in libraries], ["a"])
         self.assertEqual(len(problems), 2)
 
-    def test_declared_library_cannot_rebind_a_preset_variable(self) -> None:
-        raw = declare({"name": "mine", "variables": ["KICAD10_3DMODEL_DIR"], "path": "/m"})
-        with configure(self.root, KICAD_3D_LIBRARY_ENABLED=True, PRISM_KICAD_LIBRARIES=raw):
+    def test_a_declared_library_cannot_rebind_a_preset_variable(self) -> None:
+        with configure(self.root, folder("mine", ["KICAD10_3DMODEL_DIR"], "m"), KICAD_3D_LIBRARY_ENABLED=True):
             libraries, problems = libs.configured()
         self.assertEqual([library.name for library in libraries], [libs.STOCK_NAME])
         self.assertEqual(len(problems), 1)
 
 
-class ResolutionTests(TempRoot):
-    def git_library(self, **extra: str) -> str:
-        entry = {"name": "lsf", "variables": ["LSF_KICAD_LIB"], "git": "https://example/lsf.git", "ref": "v1"}
-        return declare({**entry, **extra})
+class RowsCacheTests(unittest.TestCase):
+    def setUp(self) -> None:
+        libs.forget_rows()
+        self.addCleanup(libs.forget_rows)
 
+    def test_rows_are_cached_then_read_again_after_forgetting(self) -> None:
+        with mock.patch("app.services.kicad_library_store.declared", return_value=[git()]) as read:
+            self.assertEqual(libs.declared_rows(), [git()])
+            libs.declared_rows()
+            self.assertEqual(read.call_count, 1)
+            libs.forget_rows()
+            libs.declared_rows()
+            self.assertEqual(read.call_count, 2)
+
+    def test_an_unreachable_database_keeps_the_last_rows(self) -> None:
+        with mock.patch("app.services.kicad_library_store.declared", return_value=[git()]):
+            libs.declared_rows()
+        libs.forget_rows()
+        with mock.patch("app.services.kicad_library_store.declared", side_effect=OSError("down")):
+            self.assertEqual(libs.declared_rows(), [])  # nothing was ever read after forgetting
+        with mock.patch("app.services.kicad_library_store.declared", return_value=[git()]):
+            libs._rows_cache = None
+            libs.declared_rows()
+        with mock.patch.object(libs, "_ROWS_TTL_SECONDS", 0), mock.patch(
+            "app.services.kicad_library_store.declared", side_effect=OSError("down")
+        ), self.assertLogs(libs.logger, "WARNING"):
+            self.assertEqual(libs.declared_rows(), [git()])
+
+
+class ResolutionTests(TempRoot):
     def mark_ready(self, library: libs.Library) -> None:
         library.clone_dir.mkdir(parents=True, exist_ok=True)
         (library.clone_dir / ".prism-ready").write_text(library.source + "\n")
 
     def test_git_library_binds_only_when_marked_ready(self) -> None:
-        with configure(self.root, PRISM_KICAD_LIBRARIES=self.git_library()):
+        with configure(self.root, git()):
             (library,), _ = libs.configured()
             self.assertEqual(libs.resolve().variables, {})
             self.mark_ready(library)
@@ -118,38 +183,40 @@ class ResolutionTests(TempRoot):
             self.assertEqual(resolution.fingerprints, {"LSF_KICAD_LIB": "https://example/lsf.git@v1#"})
 
     def test_changed_ref_is_no_longer_ready(self) -> None:
-        with configure(self.root, PRISM_KICAD_LIBRARIES=self.git_library()):
+        with configure(self.root, git()):
             (library,), _ = libs.configured()
             self.mark_ready(library)
-        with configure(self.root, PRISM_KICAD_LIBRARIES=self.git_library(ref="v2")):
+        with configure(self.root, git(ref="v2")):
             self.assertEqual(libs.resolve().variables, {})
 
     def test_subdir_is_the_bound_folder(self) -> None:
-        with configure(self.root, PRISM_KICAD_LIBRARIES=self.git_library(subdir="lib/models")):
+        with configure(self.root, git(subdir="lib/models")):
             (library,), _ = libs.configured()
             self.mark_ready(library)
             bound = libs.resolve().variables["LSF_KICAD_LIB"]
             self.assertEqual(Path(bound), library.clone_dir / "lib" / "models")
 
-    def test_path_library_needs_the_folder(self) -> None:
-        mounted = self.root / "mounted"
-        raw = declare({"name": "m", "variables": ["M_LIB"], "path": str(mounted)})
-        with configure(self.root, PRISM_KICAD_LIBRARIES=raw):
+    def test_path_library_needs_the_mount_root_and_the_folder(self) -> None:
+        mount = self.root / "mnt"
+        row = folder("m", ["M_LIB"], "lsf")
+        with configure(self.root, row):  # no mount root configured
+            (self.root / "lsf").mkdir()
             self.assertEqual(libs.resolve().variables, {})
-            mounted.mkdir()
-            self.assertEqual(libs.resolve().variables, {"M_LIB": str(mounted)})
+        with configure(self.root, row, mount=mount):
+            self.assertEqual(libs.resolve().variables, {})
+            (mount / "lsf").mkdir(parents=True)
+            self.assertEqual(libs.resolve().variables, {"M_LIB": str(mount / "lsf")})
+            self.assertEqual(libs.resolve().fingerprints, {"M_LIB": "path:lsf"})
 
     def test_declared_library_wins_over_the_environment(self) -> None:
-        mounted = self.root / "mounted"
-        mounted.mkdir()
-        raw = declare({"name": "m", "variables": ["M_LIB"], "path": str(mounted)})
-        with configure(self.root, PRISM_KICAD_LIBRARIES=raw):
+        mount = self.root / "mnt"
+        (mount / "lsf").mkdir(parents=True)
+        with configure(self.root, folder("m", ["M_LIB"], "lsf"), mount=mount):
             env = libs.environment({"M_LIB": "/image/default", "OTHER": "1"})
-        self.assertEqual(env, {"M_LIB": str(mounted), "OTHER": "1"})
+        self.assertEqual(env, {"M_LIB": str(mount / "lsf"), "OTHER": "1"})
 
     def test_unready_library_leaves_the_environment_alone(self) -> None:
-        raw = declare({"name": "m", "variables": ["M_LIB"], "path": str(self.root / "absent")})
-        with configure(self.root, PRISM_KICAD_LIBRARIES=raw):
+        with configure(self.root, folder("m", ["M_LIB"], "absent"), mount=self.root / "mnt"):
             self.assertEqual(libs.environment({"M_LIB": "/image/default"}), {"M_LIB": "/image/default"})
 
     def test_environment_defaults_to_the_process(self) -> None:
@@ -168,64 +235,67 @@ class FetchTests(TempRoot):
         self.assertTrue(libs._try_lock(lock))  # so the next try wins
 
     def test_nothing_to_fetch_starts_no_thread(self) -> None:
-        raw = declare({"name": "m", "variables": ["M_LIB"], "path": str(self.root)})
-        with configure(self.root, PRISM_KICAD_LIBRARIES=raw):
+        mount = self.root / "mnt"
+        mount.mkdir()
+        with configure(self.root, folder("m", ["M_LIB"], "x"), mount=mount):
             self.assertIsNone(libs.start_in_background())
 
-    def test_startup_reports_configuration_problems(self) -> None:
-        with configure(self.root, PRISM_KICAD_LIBRARIES="{nope"), self.assertLogs(libs.logger, "WARNING") as logged:
+    def test_startup_reports_a_bad_row(self) -> None:
+        with configure(self.root, {"name": "broken"}), self.assertLogs(libs.logger, "WARNING") as logged:
             libs.start_in_background()
-        self.assertIn("not a JSON list", logged.output[0])
+        self.assertIn("broken", logged.output[0])
 
 
 class ConsumerTests(TempRoot):
     """Every KiCad process takes its variables from the resolver."""
 
-    def mounted(self, name: str = "LSF_KICAD_LIB") -> str:
-        folder = self.root / "mounted"
-        folder.mkdir(exist_ok=True)
-        return declare({"name": "m", "variables": [name], "path": str(folder)})
+    def setUp(self) -> None:
+        super().setUp()
+        self.mount = self.root / "mnt"
+        (self.mount / "lsf").mkdir(parents=True)
+        self.bound = str(self.mount / "lsf")
+
+    def row(self, variable: str = "LSF_KICAD_LIB") -> dict:
+        return folder("m", [variable], "lsf")
+
+    def probe(self, **kwargs: object) -> str:
+        tool = kicad_tools.LocalTool("probe", lambda: sys.executable, isolate=False)
+        code = "import os; print(os.environ.get('LSF_KICAD_LIB'))"
+        return tool.run(["-c", code], timeout=30, **kwargs).stdout.strip()
 
     def test_a_tool_child_sees_the_library_over_the_environment(self) -> None:
-        tool = kicad_tools.LocalTool("probe", lambda: sys.executable, isolate=False)
-        code = "import os; print(os.environ.get('LSF_KICAD_LIB'))"
-        with configure(self.root, PRISM_KICAD_LIBRARIES=self.mounted()), mock.patch.dict(
+        with configure(self.root, self.row(), mount=self.mount), mock.patch.dict(
             os.environ, {"LSF_KICAD_LIB": "/image/default"}
         ):
-            result = tool.run(["-c", code], timeout=30)
-        self.assertEqual(result.stdout.strip(), str(self.root / "mounted"))
+            self.assertEqual(self.probe(), self.bound)
 
     def test_a_caller_env_still_overrides(self) -> None:
-        tool = kicad_tools.LocalTool("probe", lambda: sys.executable, isolate=False)
-        code = "import os; print(os.environ.get('LSF_KICAD_LIB'))"
-        with configure(self.root, PRISM_KICAD_LIBRARIES=self.mounted()):
-            result = tool.run(["-c", code], timeout=30, env={"LSF_KICAD_LIB": "/explicit"})
-        self.assertEqual(result.stdout.strip(), "/explicit")
+        with configure(self.root, self.row(), mount=self.mount):
+            self.assertEqual(self.probe(env={"LSF_KICAD_LIB": "/explicit"}), "/explicit")
 
     def test_hlr_args_pass_a_third_party_variable(self) -> None:
-        with configure(self.root, PRISM_KICAD_LIBRARIES=self.mounted()), mock.patch.object(
+        with configure(self.root, self.row(), mount=self.mount), mock.patch.object(
             stage_models.settings, "GEOMETER_EXECUTABLE", "/opt/geometer/geometer"
         ):
             args = stage_models.hlr_args({"KICAD10_3DMODEL_DIR": "/stock", "HOME": "/root"})
         self.assertEqual(
             args[4:],
-            ["--model-dir", "KICAD10_3DMODEL_DIR=/stock", "--model-dir", f"LSF_KICAD_LIB={self.root / 'mounted'}"],
+            ["--model-dir", "KICAD10_3DMODEL_DIR=/stock", "--model-dir", f"LSF_KICAD_LIB={self.bound}"],
         )
 
     def test_hlr_args_prefer_the_declared_library_for_a_stock_variable(self) -> None:
-        with configure(self.root, PRISM_KICAD_LIBRARIES=self.mounted("KICAD10_3DMODEL_DIR")), mock.patch.object(
+        with configure(self.root, self.row("KICAD10_3DMODEL_DIR"), mount=self.mount), mock.patch.object(
             stage_models.settings, "GEOMETER_EXECUTABLE", "/opt/geometer/geometer"
         ):
             args = stage_models.hlr_args({"KICAD10_3DMODEL_DIR": "/image"})
-        self.assertEqual(args[4:], ["--model-dir", f"KICAD10_3DMODEL_DIR={self.root / 'mounted'}"])
+        self.assertEqual(args[4:], ["--model-dir", f"KICAD10_3DMODEL_DIR={self.bound}"])
 
     def render_key(self, root: Path, ref: str) -> str:
         """The render cache key with the git library ready under ``root``."""
 
         board = self.root / "board.kicad_pcb"
         board.write_text("(kicad_pcb)")
-        raw = declare({"name": "lsf", "variables": ["LSF_KICAD_LIB"], "git": "https://example/lsf.git", "ref": ref})
-        with configure(root, PRISM_KICAD_LIBRARIES=raw):
+        with configure(root, git(ref=ref)):
             (library,), _ = libs.configured()
             library.clone_dir.mkdir(parents=True, exist_ok=True)
             (library.clone_dir / ".prism-ready").write_text(library.source + "\n")

@@ -2,10 +2,11 @@
 
 A board reaches files outside its repository through path variables such as
 `${KICAD10_3DMODEL_DIR}` or `${LSF_KICAD_LIB}`. The image defines none of the
-third-party ones and carries no stock 3D models, so the admin declares
-libraries (`PRISM_KICAD_LIBRARIES`, plus the stock preset
-`KICAD_3D_LIBRARY_ENABLED`). A git library is cloned once, shallow, into the
-shared projects volume, so the API and every worker see one copy.
+third-party ones and carries no stock 3D models, so an administrator declares
+libraries in Settings (stored in ``ws_kicad_libraries``); the environment adds
+one more, the stock 3D library, with `KICAD_3D_LIBRARY_ENABLED`. A git library
+is cloned once, shallow, into the shared projects volume, so the API and every
+worker see one copy; a path library is a folder under the mount root.
 
 :func:`resolve` is the one answer to "which variable points where". A declared
 library wins over a variable the environment already defines. Nothing here
@@ -14,7 +15,6 @@ writes `os.environ`: callers take :func:`environment` or :func:`resolve`.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -38,17 +38,21 @@ _READY_MARKER = ".prism-ready"
 _POLL_SECONDS = 10
 # A clone that stops reporting progress is abandoned so another process can retry.
 _STALE_LOCK_SECONDS = 15 * 60
+# How long a process trusts the rows it read; a console edit reaches every process within this.
+_ROWS_TTL_SECONDS = 5.0
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 @dataclass(frozen=True, slots=True)
 class Library:
-    """One declared library: the variables it binds and where its files come from.
+    """One library: the variables it binds and where its files come from.
 
     A git library is cloned into ``directory`` (default
-    ``.kicad-prism/libraries/<name>``); a path library is a folder the operator
-    mounted. ``subdir`` is the folder inside the clone the variables point at.
+    ``.kicad-prism/libraries/<name>``); a path library is a folder under the
+    mount root, named relative to it. ``subdir`` is the folder inside the clone
+    the variables point at. ``locked`` marks the environment's own entry, which
+    the console shows but cannot change.
     """
 
     name: str
@@ -58,6 +62,7 @@ class Library:
     subdir: str = ""
     path: str = ""
     directory: str = ""
+    locked: bool = False
 
     @property
     def clone_dir(self) -> Path:
@@ -66,7 +71,7 @@ class Library:
     @property
     def folder(self) -> Path:
         if self.path:
-            return Path(self.path).expanduser()
+            return mount_root() / self.path
         return self.clone_dir / self.subdir if self.subdir else self.clone_dir
 
     @property
@@ -80,7 +85,7 @@ class Library:
     @property
     def ready(self) -> bool:
         if self.path:
-            return self.folder.is_dir()
+            return bool(settings.PRISM_KICAD_LIBRARY_MOUNT_ROOT.strip()) and self.folder.is_dir()
         try:
             return (self.clone_dir / _READY_MARKER).read_text(encoding="utf-8").strip() == self.source
         except OSError:
@@ -99,6 +104,10 @@ def libraries_root() -> Path:
     return Path(settings.KICAD_PROJECTS_ROOT).expanduser() / ".kicad-prism" / "libraries"
 
 
+def mount_root() -> Path:
+    return Path(settings.PRISM_KICAD_LIBRARY_MOUNT_ROOT.strip()).expanduser()
+
+
 def _preset() -> Library | None:
     if not settings.KICAD_3D_LIBRARY_ENABLED:
         return None
@@ -108,10 +117,13 @@ def _preset() -> Library | None:
         git=STOCK_REPOSITORY,
         ref=settings.KICAD_3D_LIBRARY_REF.strip(),
         directory=settings.KICAD_3D_LIBRARY_DIR.strip(),
+        locked=True,
     )
 
 
-def _entry(raw: Any) -> Library:
+def validate_entry(raw: Any) -> Library:
+    """A library from its declared fields, or ``ValueError`` saying what is wrong with them."""
+
     if not isinstance(raw, dict):
         raise ValueError("an entry must be an object")
     name = raw.get("name")
@@ -119,50 +131,87 @@ def _entry(raw: Any) -> Library:
         raise ValueError("name must be letters, digits, '.', '_' or '-'")
     variables = raw.get("variables")
     if (
-        not isinstance(variables, list)
+        not isinstance(variables, (list, tuple))
         or not variables
         or not all(isinstance(v, str) and _VARIABLE.fullmatch(v) for v in variables)
+        or len(set(variables)) != len(variables)
     ):
-        raise ValueError("variables must be a non-empty list of variable names")
-    git, path = raw.get("git"), raw.get("path")
+        raise ValueError("variables must be a non-empty list of distinct variable names")
+    git, path = raw.get("git") or None, raw.get("path") or None
     if (git is None) == (path is None):
         raise ValueError("give exactly one of git and path")
     if path is not None:
-        if not isinstance(path, str) or not path.strip():
-            raise ValueError("path must be a folder")
-        return Library(name=name, variables=tuple(variables), path=path.strip())
-    ref, subdir = raw.get("ref", ""), raw.get("subdir", "")
-    if not isinstance(git, str) or not git.strip() or not isinstance(ref, str) or not ref.strip():
-        raise ValueError("a git library needs a url and a ref")
-    if not isinstance(subdir, str) or Path(subdir).is_absolute() or ".." in Path(subdir).parts:
+        if not isinstance(path, str) or not _relative(path):
+            raise ValueError("path must be a folder inside the library mount root")
+        return Library(name=name, variables=tuple(variables), path=path.strip().strip("/\\"))
+    ref, subdir = raw.get("ref") or "", raw.get("subdir") or ""
+    if not isinstance(git, str) or not git.strip().startswith("https://"):
+        raise ValueError("a git library needs an https:// url")
+    if not isinstance(ref, str) or not ref.strip() or ref.strip().startswith("-"):
+        raise ValueError("a git library needs a tag or branch")
+    if not isinstance(subdir, str) or (subdir and not _relative(subdir)):
         raise ValueError("subdir must be a relative folder inside the clone")
     return Library(
-        name=name, variables=tuple(variables), git=git.strip(), ref=ref.strip(), subdir=subdir.strip("/\\")
+        name=name, variables=tuple(variables), git=git.strip(), ref=ref.strip(), subdir=subdir.strip().strip("/\\")
     )
 
 
+def _relative(value: str) -> bool:
+    """A folder named below its root: no leading separator, drive, or ``..``, whichever OS reads it."""
+
+    text = value.strip()
+    parts = text.replace(chr(92), "/").rstrip("/").split("/")
+    return bool(text) and text[0] not in ("/", chr(92)) and ":" not in text and ".." not in parts and "" not in parts
+
+
+_rows_lock = threading.Lock()
+_rows_cache: tuple[float, list[dict[str, Any]]] | None = None
+
+
+def declared_rows() -> list[dict[str, Any]]:
+    """The administrator's libraries, as ``validate_entry`` takes them; read through a short cache.
+
+    A database that cannot be reached leaves the last rows read in force, and none
+    if there never were any, so a tool run is never blocked on it.
+    """
+
+    global _rows_cache
+    now = time.monotonic()
+    with _rows_lock:
+        if _rows_cache is not None and now - _rows_cache[0] < _ROWS_TTL_SECONDS:
+            return _rows_cache[1]
+        try:
+            from app.services import kicad_library_store
+
+            rows = kicad_library_store.declared()
+        except Exception as error:
+            logger.warning("KiCad libraries: could not read the declared libraries: %s", error)
+            rows = _rows_cache[1] if _rows_cache is not None else []
+        _rows_cache = (now, rows)
+        return rows
+
+
+def forget_rows() -> None:
+    """Drop the cached rows: the next read goes to the database."""
+
+    global _rows_cache
+    with _rows_lock:
+        _rows_cache = None
+
+
 def configured() -> tuple[tuple[Library, ...], list[str]]:
-    """The libraries the configuration declares, and why any entry was left out."""
+    """The libraries in force (the stock preset first), and why any declared one was left out."""
 
     entries: list[Library] = []
     problems: list[str] = []
     preset = _preset()
     if preset is not None:
         entries.append(preset)
-    raw = settings.PRISM_KICAD_LIBRARIES.strip()
-    if raw:
+    for raw in declared_rows():
         try:
-            declared = json.loads(raw)
-            if not isinstance(declared, list):
-                raise ValueError("expected a JSON list")
+            entries.append(validate_entry(raw))
         except ValueError as error:
-            problems.append(f"PRISM_KICAD_LIBRARIES is not a JSON list of libraries: {error}")
-            declared = []
-        for position, item in enumerate(declared, start=1):
-            try:
-                entries.append(_entry(item))
-            except ValueError as error:
-                problems.append(f"PRISM_KICAD_LIBRARIES entry {position}: {error}")
+            problems.append(f"library {raw.get('name', '?')!r}: {error}")
     kept: list[Library] = []
     names: set[str] = set()
     claimed: dict[str, str] = {}
