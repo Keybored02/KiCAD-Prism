@@ -42,6 +42,7 @@ export interface KicadLibraryChanges {
 export interface RemoteCheckResult {
     reachable: boolean;
     error: string | null;
+    defaultBranch: string | null;
     tags: string[];
     branches: string[];
     refFound: boolean | null;

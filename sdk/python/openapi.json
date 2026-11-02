@@ -17669,6 +17669,17 @@
             "title": "Branches",
             "type": "array"
           },
+          "defaultBranch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defaultbranch"
+          },
           "error": {
             "anyOf": [
               {

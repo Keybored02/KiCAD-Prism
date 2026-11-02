@@ -198,7 +198,7 @@ def check_remote(url: str, ref: str = "") -> dict[str, Any]:
         return {"reachable": False, "error": "Only https:// repositories are supported"}
     try:
         done = subprocess.run(
-            ["git", "ls-remote", "--tags", "--heads", "--refs", "--", url],
+            ["git", "ls-remote", "--symref", "--", url, "HEAD", "refs/tags/*", "refs/heads/*"],
             capture_output=True,
             text=True,
             timeout=_CHECK_TIMEOUT_SECONDS,
@@ -211,20 +211,38 @@ def check_remote(url: str, ref: str = "") -> dict[str, Any]:
     if done.returncode != 0:
         lines = [line.strip() for line in done.stderr.splitlines() if line.strip()]
         return {"reachable": False, "error": (lines[-1] if lines else "git ls-remote failed")[:300]}
-    tags, branches = [], []
+    tags, branches, default = [], [], None
     for line in done.stdout.splitlines():
-        _sha, _, name = line.partition(chr(9))
-        if name.startswith("refs/tags/"):
+        first, _, name = line.partition(chr(9))
+        if first.startswith("ref: refs/heads/") and name == "HEAD":
+            default = first.removeprefix("ref: refs/heads/")
+        elif name.endswith("^{}"):
+            continue  # a tag's peeled commit; the tag itself is already listed
+        elif name.startswith("refs/tags/"):
             tags.append(name.removeprefix("refs/tags/"))
         elif name.startswith("refs/heads/"):
             branches.append(name.removeprefix("refs/heads/"))
+    # Newest tag first (10 before 9), numbered releases before named ones, the default branch before the others.
+    tags.sort(key=lambda name: (name[:1].isdigit(), _version_order(name)), reverse=True)
+    branches.sort(key=lambda name: (name != default, name))
     ref = ref.strip()
     return {
         "reachable": True,
-        "tags": tags[-_MAX_LISTED:],
+        "defaultBranch": default,
+        "tags": tags[:_MAX_LISTED],
         "branches": branches[:_MAX_LISTED],
         "refFound": (ref in tags or ref in branches) if ref else None,
     }
+
+
+def _version_order(name: str) -> list[tuple[int, int | str]]:
+    """A sort key that reads digit runs as numbers: 10.0.4 after 9.0.9."""
+
+    key: list[tuple[int, int | str]] = [
+        (0, int(part)) if part.isdigit() else (1, part) for part in re.split(r"(\d+)", name) if part
+    ]
+    # A release sorts after its own pre-releases: 10.0.8 is newer than 10.0.8-rc1.
+    return [*key, (2, "")]
 
 
 def queue_missing() -> list[str]:

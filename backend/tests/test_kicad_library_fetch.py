@@ -248,17 +248,41 @@ class CheckRemoteTests(unittest.TestCase):
         return mock.patch.object(fetch.subprocess, "run", return_value=done)
 
     def test_lists_tags_and_branches_and_finds_the_ref(self) -> None:
-        listing = chr(10).join(
-            f"{'a' * 40}{chr(9)}refs/{kind}/{name}"
-            for kind, name in (("tags", "v1"), ("tags", "v2"), ("heads", "main"))
+        tab, newline = chr(9), chr(10)
+        listing = newline.join(
+            [
+                f"ref: refs/heads/trunk{tab}HEAD",
+                f"{'a' * 40}{tab}HEAD",
+                *(f"{'a' * 40}{tab}refs/{kind}/{name}" for kind, name in (
+                    ("tags", "v1"), ("tags", "v2"), ("heads", "main"), ("heads", "trunk"),
+                )),
+                f"{'b' * 40}{tab}refs/tags/v2^{{}}",
+            ]
         )
         with self.run_git(listing):
             found = fetch.check_remote("https://example.org/x.git", "v2")
             missing = fetch.check_remote("https://example.org/x.git", "v9")
             unasked = fetch.check_remote("https://example.org/x.git")
-        self.assertEqual((found["tags"], found["branches"], found["refFound"]), (["v1", "v2"], ["main"], True))
+        self.assertEqual(found["tags"], ["v2", "v1"])
+        self.assertEqual(found["branches"], ["trunk", "main"])
+        self.assertEqual(found["defaultBranch"], "trunk")
+        self.assertTrue(found["refFound"])
         self.assertFalse(missing["refFound"])
         self.assertIsNone(unasked["refFound"])
+
+    def test_tags_come_newest_first(self) -> None:
+        tab = chr(9)
+        names = ["9.0.9", "10.0.8-rc1", "10.0.8", "10.0.10", "nightly", "10.0.2"]
+        listing = chr(10).join(f"{'a' * 40}{tab}refs/tags/{name}" for name in names)
+        with self.run_git(listing):
+            tags = fetch.check_remote("https://example.org/x.git")["tags"]
+        self.assertEqual(tags, ["10.0.10", "10.0.8", "10.0.8-rc1", "10.0.2", "9.0.9", "nightly"])
+
+    def test_a_repository_with_no_default_branch_still_lists(self) -> None:
+        with self.run_git(f"{'a' * 40}{chr(9)}refs/heads/main"):
+            result = fetch.check_remote("https://example.org/x.git")
+        self.assertIsNone(result["defaultBranch"])
+        self.assertEqual(result["branches"], ["main"])
 
     def test_only_https(self) -> None:
         for url in ("http://example.org/x.git", "git@example.org:x.git", "file:///x", "--upload-pack=x"):
@@ -280,7 +304,7 @@ class CheckRemoteTests(unittest.TestCase):
         with self.run_git() as run:
             fetch.check_remote("https://example.org/x.git")
         argv = run.call_args.args[0]
-        self.assertEqual(argv[-2:], ["--", "https://example.org/x.git"])
+        self.assertEqual(argv[-5:-3], ["--", "https://example.org/x.git"])
         self.assertEqual(run.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
 
 

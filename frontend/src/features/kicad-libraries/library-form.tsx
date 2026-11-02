@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { KicadLibrary, NewKicadLibrary } from "@/types/kicad-libraries";
 
+import { LibraryRefSelect } from "./library-ref-select";
 import { parseVariables } from "./library-status";
-import { RemoteCheck } from "./remote-check";
+import { useRemoteRefs } from "./use-remote-refs";
 
 type Source = "git" | "path";
 
@@ -42,10 +43,10 @@ function initialValues(library?: KicadLibrary): FormValues {
     };
 }
 
-function toLibrary(values: FormValues): NewKicadLibrary {
+function toLibrary(values: FormValues, ref: string): NewKicadLibrary {
     const base = { name: values.name.trim(), variables: parseVariables(values.variables) };
     if (values.source === "path") return { ...base, path: values.path.trim() };
-    return { ...base, git: values.git.trim(), ref: values.ref.trim(), subdir: values.subdir.trim() };
+    return { ...base, git: values.git.trim(), ref, subdir: values.subdir.trim() };
 }
 
 function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
@@ -63,17 +64,20 @@ export function LibraryForm({ library, pathLibrariesEnabled, busy, error, onSubm
     const [values, setValues] = useState<FormValues>(() => initialValues(library));
     const set = (changes: Partial<FormValues>) => setValues((previous) => ({ ...previous, ...changes }));
     const isGit = values.source === "git";
+    const refs = useRemoteRefs(isGit ? values.git : "");
+    // Until a choice is made, the repository's default branch is the ref.
+    const ref = values.ref || refs.defaultBranch || "";
     const complete =
         values.name.trim() !== "" &&
         parseVariables(values.variables).length > 0 &&
-        (isGit ? values.git.trim() !== "" && values.ref.trim() !== "" : values.path.trim() !== "");
+        (isGit ? refs.status === "ready" && ref !== "" : values.path.trim() !== "");
 
     return (
         <form
             className="flex flex-col gap-4 max-w-xl"
             onSubmit={(event) => {
                 event.preventDefault();
-                onSubmit(toLibrary(values));
+                onSubmit(toLibrary(values, ref));
             }}
         >
             <Field id="library-name" label="Name" hint="Letters, digits, dots, dashes and underscores.">
@@ -96,16 +100,15 @@ export function LibraryForm({ library, pathLibrariesEnabled, busy, error, onSubm
 
             {isGit ? (
                 <>
-                    <Field id="library-git" label="Repository" hint={editing ? "Remove the library to point it at another repository." : "An https:// address."}>
-                        <Input id="library-git" value={values.git} disabled={editing} placeholder="https://gitlab.com/org/library.git" onChange={(event) => set({ git: event.target.value })} />
+                    <Field id="library-git" label="Repository" hint={editing ? "Remove the library to point it at another repository." : "An https:// address. It is checked as you type."}>
+                        <Input id="library-git" value={values.git} disabled={editing} placeholder="https://gitlab.com/org/library.git" onChange={(event) => set({ git: event.target.value, ref: "" })} />
                     </Field>
                     <Field id="library-ref" label="Tag or branch">
-                        <Input id="library-ref" value={values.ref} onChange={(event) => set({ ref: event.target.value })} />
+                        <LibraryRefSelect id="library-ref" value={ref} refs={refs} onChange={(picked) => set({ ref: picked })} />
                     </Field>
                     <Field id="library-subdir" label="Folder inside the repository" hint="Optional. The variables point here instead of the repository root.">
                         <Input id="library-subdir" value={values.subdir} onChange={(event) => set({ subdir: event.target.value })} />
                     </Field>
-                    <RemoteCheck git={values.git} gitRef={values.ref} onPick={(picked) => set({ ref: picked })} />
                 </>
             ) : (
                 <Field id="library-path" label="Folder" hint="Relative to the library mount root on the server.">

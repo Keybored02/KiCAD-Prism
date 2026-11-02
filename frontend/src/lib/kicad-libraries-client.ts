@@ -34,6 +34,10 @@ export async function deleteLibrary(name: string): Promise<void> {
     await fetchChecked(`${ROOT}/${encodeURIComponent(name)}`, { method: "DELETE" }, "Failed to remove the library");
 }
 
-export function checkRemote(git: string, ref: string): Promise<RemoteCheckResult> {
-    return fetchJson<RemoteCheckResult>(`${ROOT}/check`, send("POST", { git, ref }), "Failed to check the repository");
+export function checkRemote(git: string, signal?: AbortSignal): Promise<RemoteCheckResult> {
+    return fetchJson<RemoteCheckResult>(
+        `${ROOT}/check`,
+        { ...send("POST", { git }), signal },
+        "Failed to check the repository",
+    );
 }

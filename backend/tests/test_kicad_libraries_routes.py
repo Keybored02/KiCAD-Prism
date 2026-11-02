@@ -225,7 +225,7 @@ class KicadLibraryRouteTests(unittest.TestCase):
             self.assertEqual(self.client.post(ROOT, json=body, headers=self.admin).status_code, 409)
 
     def test_check_reports_what_the_remote_says(self) -> None:
-        answer = {"reachable": True, "tags": ["v1"], "branches": ["main"], "refFound": True}
+        answer = {"reachable": True, "defaultBranch": "main", "tags": ["v1"], "branches": ["main"], "refFound": True}
         with patch.object(kicad_library_fetch, "check_remote", return_value=answer) as check:
             response = self.client.post(f"{ROOT}/check", json={"git": "https://e/x.git", "ref": "v1"}, headers=self.admin)
         self.assertEqual(response.json(), {**answer, "error": None})

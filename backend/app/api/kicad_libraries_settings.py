@@ -72,6 +72,7 @@ class RemoteCheck(BaseModel):
 class RemoteCheckResult(BaseModel):
     reachable: bool
     error: str | None = None
+    defaultBranch: str | None = None
     tags: list[str] = []
     branches: list[str] = []
     refFound: bool | None = None

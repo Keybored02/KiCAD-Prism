@@ -3275,6 +3275,7 @@ class RemoteCheck(TypedDict, total=False):
 
 class RemoteCheckResult(TypedDict, total=False):
     branches: list[str]
+    defaultBranch: str | None
     error: str | None
     reachable: bool
     refFound: bool | None
