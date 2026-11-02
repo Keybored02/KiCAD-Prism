@@ -82,7 +82,6 @@ function CategoryHarness({
       category="Parts"
       viewState={view}
       onViewStateChange={setView}
-      onBack={noop}
       onSelectComponent={noop}
       onAuthRequired={noop}
       appendLog={noop}

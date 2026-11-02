@@ -98,7 +98,7 @@ describe("panel placement", () => {
 
   it("dispatches PLACE_COMPONENT once when KiCad accepts and drops the reply", async () => {
     vi.mocked(sendRpcCommand).mockImplementation(() => new Promise(() => {}));
-    render(<PartDetailScreen componentId="part" onBack={() => {}} onAuthRequired={() => {}} appendLog={() => {}} />);
+    render(<PartDetailScreen componentId="part" onAuthRequired={() => {}} appendLog={() => {}} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Place" }));
     await waitFor(() => expect(sendRpcCommand).toHaveBeenCalledTimes(1));
@@ -120,7 +120,7 @@ describe("panel placement", () => {
       .mockRejectedValueOnce(new KiCadRpcError("unknown_outcome", "Response timeout"))
       .mockResolvedValueOnce({ status: "OK", command: "PLACE_COMPONENT" });
 
-    render(<PartDetailScreen componentId="part" onBack={() => {}} onAuthRequired={() => {}} appendLog={() => {}} />);
+    render(<PartDetailScreen componentId="part" onAuthRequired={() => {}} appendLog={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "Place" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Check the schematic before placing again");
@@ -134,7 +134,7 @@ describe("panel placement", () => {
   it("does not dispatch a manifest after navigation, even if fetch ignores abort", async () => {
     let finish!: (manifest: Record<string, unknown>) => void;
     vi.mocked(getPartManifest).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
-    const { unmount } = render(<PartDetailScreen componentId="part" onBack={() => {}} onAuthRequired={() => {}} appendLog={() => {}} />);
+    const { unmount } = render(<PartDetailScreen componentId="part" onAuthRequired={() => {}} appendLog={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "Place" }));
     const signal = vi.mocked(getPartManifest).mock.calls.at(-1)?.[2];
     unmount();
@@ -148,7 +148,7 @@ describe("panel placement", () => {
       vi.mocked(getSessionId).mockReturnValue("session-2");
       return { library: "Prism" };
     });
-    render(<PartDetailScreen componentId="part" onBack={() => {}} onAuthRequired={() => {}} appendLog={() => {}} />);
+    render(<PartDetailScreen componentId="part" onAuthRequired={() => {}} appendLog={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "Place" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Placement did not start: KiCad session changed");
     expect(sendRpcCommand).not.toHaveBeenCalled();
@@ -156,7 +156,7 @@ describe("panel placement", () => {
 
   it("classifies a malformed manifest response as pre-dispatch", async () => {
     vi.mocked(getPartManifest).mockRejectedValue(new SyntaxError("Invalid JSON"));
-    render(<PartDetailScreen componentId="part" onBack={() => {}} onAuthRequired={() => {}} appendLog={() => {}} />);
+    render(<PartDetailScreen componentId="part" onAuthRequired={() => {}} appendLog={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "Place" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Placement did not start: Invalid JSON");
     expect(sendRpcCommand).not.toHaveBeenCalled();
@@ -167,7 +167,7 @@ describe("panel placement", () => {
     const bridge = createKiCadBridge({ transport: { post: (payload) => { posted.push(JSON.parse(payload)); return true; } } });
     bridge.handleIncoming({ command: "NEW_SESSION", session_id: "session-1", message_id: 1 });
     vi.mocked(sendRpcCommand).mockImplementation((...args) => bridge.send(...args));
-    const { unmount } = render(<PartDetailScreen componentId="part" onBack={() => {}} onAuthRequired={() => {}} appendLog={() => {}} />);
+    const { unmount } = render(<PartDetailScreen componentId="part" onAuthRequired={() => {}} appendLog={() => {}} />);
     const button = await screen.findByRole("button", { name: "Place" });
     vi.useFakeTimers();
     try {
@@ -193,7 +193,7 @@ describe("panel placement", () => {
       released_revisions: released,
     }));
     vi.mocked(sendRpcCommand).mockResolvedValue({ status: "OK", command: "PLACE_COMPONENT" });
-    render(<PartDetailScreen componentId="part" onBack={() => {}} onAuthRequired={() => {}} appendLog={() => {}} />);
+    render(<PartDetailScreen componentId="part" onAuthRequired={() => {}} appendLog={() => {}} />);
 
     await screen.findByRole("combobox", { name: "Released revision" });
     await chooseOption("Released revision", "Rev.1");

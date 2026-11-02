@@ -93,7 +93,6 @@ function renderDetail(
   return render(
     <PartDetailScreen
       componentId="part-a"
-      onBack={noop}
       onAuthRequired={noop}
       appendLog={noop}
       {...overrides}
@@ -127,14 +126,11 @@ describe("panel detail loading", () => {
     expect(screen.queryByRole("button", { name: "Place" })).not.toBeInTheDocument();
   });
 
-  it("shows retry and back for a 404", async () => {
-    const onBack = vi.fn();
+  it("says so for a 404", async () => {
     vi.mocked(getComponent).mockRejectedValue(new PanelApiError(404, "Missing"));
-    renderDetail({ onBack });
+    renderDetail();
     expect(await screen.findByText("Part not found")).toBeInTheDocument();
     expect(screen.getByText("Missing")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   it("retries a network failure instead of pinning the skeleton", async () => {
@@ -162,7 +158,6 @@ describe("panel detail loading", () => {
     view.rerender(
       <PartDetailScreen
         componentId="part-b"
-        onBack={noop}
         onAuthRequired={noop}
         appendLog={noop}
       />,
