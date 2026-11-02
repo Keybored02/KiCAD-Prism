@@ -1331,6 +1331,7 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
 
         if not fetch_only:
             derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
+            derived_assets.restore_kicad_local_state(repo)
 
         # Fetch all refs for branch viewing and prune deleted branches. A host
         # that went away mid-transfer must not hold the repository lock until
