@@ -50,9 +50,14 @@ const schema: SanitizeSchema = {
 interface MarkdownContentProps {
   content: string;
   resolveImageSrc: (src?: string) => string | undefined;
+  /**
+   * Where a link opens outside Prism, or null to keep the href as written.
+   * A rewritten link opens in a new tab so the page the reader came from stays.
+   */
+  resolveLinkHref?: (href?: string) => string | null;
 }
 
-export function MarkdownContent({ content, resolveImageSrc }: MarkdownContentProps) {
+export function MarkdownContent({ content, resolveImageSrc, resolveLinkHref }: MarkdownContentProps) {
   return (
     <div className="markdown-body" style={{ background: "transparent" }}>
       <ReactMarkdown
@@ -63,6 +68,18 @@ export function MarkdownContent({ content, resolveImageSrc }: MarkdownContentPro
         rehypePlugins={[rehypeRaw, [rehypeSanitize, schema]]}
         components={{
           img: ({ src, alt }) => <img src={resolveImageSrc(src)} alt={alt || ""} />,
+          a: ({ href, title, id, className, children }) => {
+            const external = resolveLinkHref?.(href);
+            return external ? (
+              <a href={external} title={title} id={id} className={className} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            ) : (
+              <a href={href} title={title} id={id} className={className}>
+                {children}
+              </a>
+            );
+          },
         }}
       >
         {content}

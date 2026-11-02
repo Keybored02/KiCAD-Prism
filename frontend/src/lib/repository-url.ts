@@ -9,13 +9,31 @@
  * host the remote names, so the browsable spelling is `https://host/path` with
  * the transport user dropped and the trailing `.git` removed.
  *
+ * An ssh remote names only the ssh port, so a self-hosted instance served on
+ * another port (`ssh://git@host:2222` with a web UI on `:3000`) would lose it.
+ * `webOrigin` is the origin the code-host connection records for that host and
+ * replaces the derived one.
+ *
  * Returns null when no safe http(s) derivation exists so callers can render
  * the raw remote as plain text instead of a dead link.
  */
 
 const SCP_LIKE_RE = /^[^/@]+@(\[[^\]]+\]|[^/:]+):(.+)$/;
 
-export function repositoryWebUrl(raw: string | null | undefined): string | null {
+export function repositoryWebUrl(raw: string | null | undefined, webOrigin?: string | null): string | null {
+  const derived = deriveWebUrl(raw);
+  const origin = webOrigin?.trim().replace(/\/+$/, "");
+  if (!derived || !origin) {
+    return derived;
+  }
+  try {
+    return `${origin}${derived.slice(new URL(derived).origin.length)}`;
+  } catch {
+    return derived;
+  }
+}
+
+function deriveWebUrl(raw: string | null | undefined): string | null {
   const remote = raw?.trim();
   if (!remote) {
     return null;
@@ -57,4 +75,84 @@ function buildWebUrl(
   }
   const origin = port ? `${protocol}//${host}:${port}` : `${protocol}//${host}`;
   return `${origin}/${path}`;
+}
+const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+
+export interface RepositoryLinkContext {
+  repoUrl: string | null | undefined;
+  /** Origin of the host's web UI, when the code-host connection records one. */
+  webOrigin?: string | null;
+  /** `github`, `gitlab` or `gitea`, as the server resolved it for this remote. */
+  provider: string | null | undefined;
+  /** The commit on screen; links open the file as it was there. */
+  commit: string | null | undefined;
+  /** Where the project sits inside its repository, for monorepo projects. */
+  subPath?: string | null;
+}
+
+/**
+ * Where a relative link in a README opens on the code host.
+ *
+ * README links are written for the forge's own renderer: `CONTRIBUTING.md`
+ * means a file next to the README, `/docs/x.md` means the repository root.
+ * Inside Prism the same href resolves against the SPA route instead, so it is
+ * rewritten to the host's file view at the commit being shown.
+ *
+ * Returns null for hrefs that are not repository paths (absolute URLs,
+ * `mailto:`, in-page `#anchors`), which keep their own meaning. A repository
+ * path that cannot be placed (unknown provider, no commit yet, a `..` past the
+ * repository root) opens the repository itself rather than a dead Prism route.
+ */
+export function repositoryFileUrl(href: string | null | undefined, context: RepositoryLinkContext): string | null {
+  const link = href?.trim();
+  if (!link || link.startsWith("#") || link.startsWith("//") || SCHEME_RE.test(link)) {
+    return null;
+  }
+  const webUrl = repositoryWebUrl(context.repoUrl, context.webOrigin);
+  if (!webUrl) {
+    return null;
+  }
+
+  const suffixAt = link.search(/[?#]/);
+  const pathPart = suffixAt === -1 ? link : link.slice(0, suffixAt);
+  const suffix = suffixAt === -1 ? "" : link.slice(suffixAt);
+
+  const segments = pathPart.startsWith("/") ? [] : splitPath(context.subPath ?? "");
+  for (const segment of splitPath(pathPart)) {
+    if (segment === "..") {
+      if (!segments.length) {
+        return webUrl;
+      }
+      segments.pop();
+    } else {
+      segments.push(segment);
+    }
+  }
+
+  const view = fileView(context.provider, pathPart.endsWith("/"));
+  if (!view || !context.commit || !segments.length) {
+    return webUrl;
+  }
+  const path = segments.map((segment) => encodeURIComponent(decodeSegment(segment))).join("/");
+  return `${webUrl}/${view}/${encodeURIComponent(context.commit)}/${path}${suffix}`;
+}
+
+function splitPath(path: string): string[] {
+  return path.split("/").filter((segment) => segment && segment !== ".");
+}
+
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/** The host's route for browsing a file (or a folder, for a trailing slash) at a commit. */
+function fileView(provider: string | null | undefined, folder: boolean): string | null {
+  if (provider === "github") return folder ? "tree" : "blob";
+  if (provider === "gitlab") return folder ? "-/tree" : "-/blob";
+  if (provider === "gitea") return "src/commit";
+  return null;
 }

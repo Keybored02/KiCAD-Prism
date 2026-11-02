@@ -110,9 +110,10 @@ class CoverRenderCacheTests(unittest.TestCase):
 
     def test_changing_a_model_directory_binding_misses(self) -> None:
         tool = self._tool()
-        with mock.patch.dict(os.environ, {"KICAD9_3DMODEL_DIR": "/models/one"}):
+        # A library the host enables binds this variable and is keyed by what it is, not by the environment.
+        with mock.patch.object(render_cache.kicad_libraries, "resolve", return_value=mock.Mock(fingerprints={})),                 mock.patch.dict(os.environ, {"KICAD9_3DMODEL_DIR": "/models/one"}):
             self._render(tool)
-        with mock.patch.dict(os.environ, {"KICAD9_3DMODEL_DIR": "/models/two"}):
+        with mock.patch.object(render_cache.kicad_libraries, "resolve", return_value=mock.Mock(fingerprints={})),                 mock.patch.dict(os.environ, {"KICAD9_3DMODEL_DIR": "/models/two"}):
             self._render(tool)
 
         self.assertEqual(len(tool.calls), 2)

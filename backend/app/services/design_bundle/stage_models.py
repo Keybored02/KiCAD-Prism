@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from app.core.config import settings
-from app.services import kicad_tools
+from app.services import kicad_libraries, kicad_tools
 from app.services.design_bundle.generator import Generator
 from app.services.design_bundle.kicad_steps import KicadStepFailed
 
@@ -53,9 +53,16 @@ def hlr_args(environ: Mapping[str, str] | None = None) -> list[str]:
     if not executable:
         return []
     args = ["--geometer", executable, "--hlr-cache", str(hlr_cache_root())]
-    for name, value in sorted((os.environ if environ is None else environ).items()):
-        if _MODEL_DIR_VARIABLE.fullmatch(name) and value:
-            args += ["--model-dir", f"{name}={value}"]
+    # The image's own stock variables, then every variable a ready library binds
+    # (declared libraries win, and a third-party variable is as good as a stock one).
+    directories = {
+        name: value
+        for name, value in (os.environ if environ is None else environ).items()
+        if _MODEL_DIR_VARIABLE.fullmatch(name) and value
+    }
+    directories.update(kicad_libraries.resolve().variables)
+    for name, value in sorted(directories.items()):
+        args += ["--model-dir", f"{name}={value}"]
     return args
 
 
@@ -73,6 +80,9 @@ def cache_key(record: Mapping[str, Any], generator: Generator, tool_version: str
         "gitlinks": gitlinks,
         "kicad_version": generator.kicad_version,
         "models_procedure": generator.models_procedure,
+        # Which libraries stand behind the path variables: a board's models resolve differently
+        # once one is added or its ref moves. Keyed by what a library is, not where it is mounted.
+        "libraries": sorted(kicad_libraries.resolve().fingerprints.items()),
         # The KiCad that exports may be a later patch release of the generator's (decisions.md).
         "tool_version": tool_version,
     }

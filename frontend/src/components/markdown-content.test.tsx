@@ -91,3 +91,24 @@ describe("markdown rendering of untrusted repository content", () => {
         );
     });
 });
+
+describe("README links", () => {
+    it("opens a rewritten link in a new tab and keeps the rest as written", async () => {
+        const resolveLinkHref = (href?: string) => (href === "CONTRIBUTING.md" ? "https://github.com/org/repo/blob/abc/CONTRIBUTING.md" : null);
+        const { container } = render(
+            <MarkdownContent
+                content={"[Contributing](CONTRIBUTING.md) and [install](#install)"}
+                resolveImageSrc={identity}
+                resolveLinkHref={resolveLinkHref}
+            />,
+        );
+
+        await waitFor(() => expect(container.querySelectorAll("a")).toHaveLength(2));
+        const [repo, anchor] = Array.from(container.querySelectorAll("a"));
+        expect(repo.getAttribute("href")).toBe("https://github.com/org/repo/blob/abc/CONTRIBUTING.md");
+        expect(repo.getAttribute("target")).toBe("_blank");
+        expect(repo.getAttribute("rel")).toBe("noopener noreferrer");
+        expect(anchor.getAttribute("href")).toBe("#install");
+        expect(anchor.getAttribute("target")).toBeNull();
+    });
+});

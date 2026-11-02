@@ -64,6 +64,7 @@ from app.services.workspace_migrations import m140_ops_workers_settings
 from app.services.workspace_migrations import m141_pg_stat_statements
 from app.services.workspace_migrations import m142_ops_profiles
 from app.services.workspace_migrations import m157_repo_discovery
+from app.services.workspace_migrations import m158_kicad_libraries
 
 
 Migration = Callable[[Any], None]
@@ -431,6 +432,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (155, "manufacturing_one_spec_per_manufacturer", _manufacturing_one_spec_per_manufacturer),
     (156, "manufacturing_defect_disposition", _manufacturing_defect_disposition),
     (157, "repo_discovery", m157_repo_discovery.migrate),
+    (158, "kicad_libraries", m158_kicad_libraries.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

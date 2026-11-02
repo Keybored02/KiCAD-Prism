@@ -12,7 +12,13 @@ from app.api._helpers import get_project_for_role_or_404
 from app.api.projects import _load_project_readme_content
 from app.api.projects_models import ProjectOverview
 from app.core.security import AuthenticatedUser, require_viewer
-from app.services import project_import_service, project_metadata_service, project_outputs, project_service
+from app.services import (
+    project_import_service,
+    project_metadata_service,
+    project_outputs,
+    project_service,
+    repository_hosts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +184,10 @@ async def get_project_overview(
     """
     project = get_project_for_role_or_404(project_id, user.role)
     readme = await run_bounded_io(_load_project_readme_content, project, commit)
+    host = await asyncio.to_thread(repository_hosts.repository_host, project.repo_url)
     return {
         "project": project.model_dump(),
         "readme": readme,
+        "repository_provider": host.provider if host else None,
+        "repository_web_origin": host.web_origin if host else None,
     }

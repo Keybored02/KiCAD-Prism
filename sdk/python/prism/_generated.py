@@ -3411,6 +3411,46 @@ class LibraryComponentOf(TypedDict, total=True):
     component_id: str | None
 
 
+class LibraryCreate(TypedDict, total=False):
+    git: str | None
+    name: str
+    path: str | None
+    ref: str
+    subdir: str
+    variables: list[str]
+
+
+class LibraryList(TypedDict, total=True):
+    libraries: list[LibraryView]
+    pathLibrariesEnabled: bool
+
+
+class LibraryUpdate(TypedDict, total=False):
+    ref: str | None
+    subdir: str | None
+    variables: list[str] | None
+
+
+class LibraryView(TypedDict, total=False):
+    """A library as the console shows it. ``ready`` is whether it resolves now; ``state`` is the fetch's report."""
+    createdAt: str | None
+    error: str | None
+    fetchedAt: str | None
+    git: str
+    locked: bool
+    name: str
+    path: str
+    progress: int | None
+    ready: bool
+    ref: str
+    sizeBytes: int | None
+    state: str
+    subdir: str
+    updatedAt: str | None
+    updatedBy: str
+    variables: list[str]
+
+
 class LifecycleInsights(TypedDict, total=True):
     compliance: ComplianceMix
     mix: LifecycleMix
@@ -4760,9 +4800,11 @@ class ProjectOpen(TypedDict, total=True):
     lines: list[TrackLine]
 
 
-class ProjectOverview(TypedDict, total=True):
+class ProjectOverview(TypedDict, total=False):
     project: Project
     readme: str | None
+    repository_provider: str | None
+    repository_web_origin: str | None
 
 
 class ProjectPartRow(TypedDict, total=False):
@@ -5377,6 +5419,20 @@ class ReliabilityBin(TypedDict, total=True):
     cases: int
     happened: float
     said: float
+
+
+class RemoteCheck(TypedDict, total=False):
+    git: str
+    ref: str
+
+
+class RemoteCheckResult(TypedDict, total=False):
+    branches: list[str]
+    defaultBranch: str | None
+    error: str | None
+    reachable: bool
+    refFound: bool | None
+    tags: list[str]
 
 
 class RenderHighlight(TypedDict, total=False):
@@ -8098,6 +8154,14 @@ class GeneratedClient:
             path_params={"project_id": project_id, "tag": tag},
         )
 
+    def check_remote(self, *, body: dict[str, Any] | None = None) -> RemoteCheckResult:
+        """Check that a repository and ref exist"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/check",
+            body=body,
+        )
+
     def choose_line(self, project_id: str, *, body: dict[str, Any] | None = None) -> None:
         """Choose Line"""
         return self._request(
@@ -8337,6 +8401,14 @@ class GeneratedClient:
         return self._request(
             "POST",
             "/api/v1/supply/inventory-sources",
+            body=body,
+        )
+
+    def create_library(self, *, body: dict[str, Any] | None = None) -> LibraryView:
+        """Declare a KiCad path library"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries",
             body=body,
         )
 
@@ -8597,6 +8669,14 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/supply/inventory-sources/{source_id}",
             path_params={"source_id": source_id},
+        )
+
+    def delete_library(self, name: str) -> None:
+        """Remove a KiCad path library"""
+        return self._request(
+            "DELETE",
+            "/api/v1/settings/kicad-libraries/{name}",
+            path_params={"name": name},
         )
 
     def delete_manufacturer(self, mfr_id: str) -> dict[str, Any]:
@@ -8921,6 +9001,14 @@ class GeneratedClient:
             "POST",
             "/api/v1/manufacturing/projects/{project_id}/pcb-rules/extract",
             path_params={"project_id": project_id},
+        )
+
+    def fetch_library(self, name: str) -> LibraryView:
+        """Fetch a KiCad path library again"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/fetch",
+            path_params={"name": name},
         )
 
     def find_part(self, *, mpn: str, manufacturer: str = '') -> PartLookup:
@@ -10324,6 +10412,13 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/supply/inventory-sources",
+        )
+
+    def list_libraries(self) -> LibraryList:
+        """List KiCad path libraries"""
+        return self._request(
+            "GET",
+            "/api/v1/settings/kicad-libraries",
         )
 
     def list_linkable_connectors(self) -> list[dict[str, Any]]:
@@ -12100,6 +12195,15 @@ class GeneratedClient:
             "PATCH",
             "/api/v1/supply/inventory-sources/{source_id}",
             path_params={"source_id": source_id},
+            body=body,
+        )
+
+    def update_library(self, name: str, *, body: dict[str, Any] | None = None) -> LibraryView:
+        """Change a KiCad path library"""
+        return self._request(
+            "PATCH",
+            "/api/v1/settings/kicad-libraries/{name}",
+            path_params={"name": name},
             body=body,
         )
 

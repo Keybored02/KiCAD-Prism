@@ -311,6 +311,22 @@ account and issued certificates), `generated/` and `sites/`, and `data/secrets`
 on a source deployment. None of these may sit on temporary container storage.
 [Operations](/KiCAD-Prism/admin/operations/#back-up) covers backing them up.
 
+## KiCad's stock 3D models
+
+The image does not include KiCad's `kicad-packages3d` library. A footprint whose
+model path starts with `${KICAD10_3DMODEL_DIR}` (or `KICAD9_`) shows no 3D model
+in Prism, even though it renders in your local KiCad. `kicad-cli` logs "Could not
+add 3D model" for each one, and the warnings land in the export result.
+
+Set `KICAD_3D_LIBRARY_ENABLED=true` to fix it. On startup the API and the workers
+clone the library once into `data/projects/.kicad-prism/kicad-packages3d` (shallow,
+several GB, needs outbound access to gitlab.com), then set both variables for every
+job that starts afterwards. Boards render with stock models once the clone finishes;
+the logs say when. A variable you set yourself is not overridden.
+`KICAD_3D_LIBRARY_REF` selects the tag; keep it on the image's KiCad version.
+
+Models in your own repositories need none of this.
+
 ## Private Git repositories
 
 To import over SSH:

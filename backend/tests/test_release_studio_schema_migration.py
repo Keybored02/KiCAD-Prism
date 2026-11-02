@@ -1776,6 +1776,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (155, "manufacturing_one_spec_per_manufacturer"),
                 (156, "manufacturing_defect_disposition"),
                 (157, "repo_discovery"),
+                (158, "kicad_libraries"),
             ],
         )
 

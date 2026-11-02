@@ -27,8 +27,33 @@ def _record(*, board: str = "b" * 40, model: str = "c" * 40, gitlink: str = "d" 
 
 
 class CacheKeyTest(unittest.TestCase):
+    fingerprints: dict[str, str] = {}
+
+    def setUp(self) -> None:
+        self.fingerprints = {}
+        self.enterContext(
+            mock.patch.object(
+                stage_models.kicad_libraries, "resolve", side_effect=lambda: mock.Mock(fingerprints=self.fingerprints)
+            )
+        )
+
     def key(self, **changes: str) -> str:
         return stage_models.cache_key(_record(**changes), GENERATOR, "10.0.7")
+
+    def test_a_library_behind_a_path_variable_is_in_the_key(self) -> None:
+        # Adding a library, or moving its ref, changes which of the board's models resolve.
+        bare = self.key()
+        self.fingerprints = {"LSF_KICAD_LIB": "https://example.org/lsf.git@master#"}
+        with_library = self.key()
+        self.assertNotEqual(bare, with_library)
+        self.fingerprints = {"LSF_KICAD_LIB": "https://example.org/lsf.git@v2#"}
+        self.assertNotEqual(with_library, self.key())
+
+    def test_the_order_libraries_were_added_does_not_matter(self) -> None:
+        self.fingerprints = {"A_LIB": "a@1#", "B_LIB": "b@1#"}
+        first = self.key()
+        self.fingerprints = {"B_LIB": "b@1#", "A_LIB": "a@1#"}
+        self.assertEqual(first, self.key())
 
     def test_the_board_and_repository_models_are_in_the_key(self) -> None:
         self.assertNotEqual(self.key(), self.key(board="e" * 40))

@@ -13,6 +13,7 @@ from app.api.mcp_clients_settings import router as mcp_clients_settings_router
 from app.api.mcp_oauth import router as mcp_oauth_router
 from app.api.mcp_settings import admin_router as mcp_audit_router
 from app.api.mcp_settings import router as mcp_settings_router
+from app.api.kicad_libraries_settings import router as kicad_libraries_settings_router
 from app.api.webhook_settings import router as webhook_settings_router
 from app.api.ops import router as ops_router
 from app.api.ops_jobs import router as ops_jobs_router
@@ -109,7 +110,7 @@ from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.core.config import settings
 from app.core import runtime_logging
-from app.services import checkout_line_endings
+from app.services import checkout_line_endings, kicad_library_fetch
 from app.services.git_credentials import (
     configuration_warnings as git_credential_warnings,
     git_credentials,
@@ -271,6 +272,12 @@ async def lifespan(app: FastAPI):
     if sys.platform == "win32":
         # Git for Windows' autocrlf makes a checkout differ from its commit's bytes.
         checkout_line_endings.convert_projects_in_background(Path(settings.KICAD_PROJECTS_ROOT))
+    try:
+        queued = await asyncio.to_thread(kicad_library_fetch.queue_missing)
+        if queued:
+            logger.info("Queued fetches for the KiCad libraries: %s", ", ".join(queued))
+    except Exception as exc:
+        logger.warning("Could not queue the KiCad library fetches: %s", exc)
     bring_every_schema_to_head()
     runtime_logging.start_poller()
     try:
@@ -404,6 +411,7 @@ app.include_router(personal_tokens_router)
 app.include_router(mcp_clients_settings_router)
 app.include_router(mcp_settings_router)
 app.include_router(webhook_settings_router)
+app.include_router(kicad_libraries_settings_router)
 app.include_router(ops_router)
 app.include_router(ops_jobs_router)
 app.include_router(ops_runtime_router)

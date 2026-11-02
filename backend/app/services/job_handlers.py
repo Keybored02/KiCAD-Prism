@@ -29,6 +29,7 @@ KIND_MODULES = (
     "app.services.repo_discovery_service",
     "app.services.project_service",
     "app.services.catalog_worker_tasks",
+    "app.services.kicad_library_fetch",
     "app.services.trackers.jobs",
     "app.services.supply.jobs",
     "app.services.supply.release_snapshot",

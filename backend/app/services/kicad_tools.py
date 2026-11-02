@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Protocol, Sequence
 
+from app.services import kicad_libraries
 from app.services.process_tree import group_popen_kwargs, kill_tree
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -158,6 +160,12 @@ def _settings(settings: "Settings | None") -> "Settings":
     return configured
 
 
+def _version_key(folder: Path) -> tuple[int, ...]:
+    """An install folder's numeric version, so 10.0 sorts above 9.0 and 8.0 (not as text)."""
+
+    return tuple(int(part) for part in re.findall(r"\d+", folder.name)) or (0,)
+
+
 def kicad_cli_install_candidates() -> tuple[str, ...]:
     """Where a KiCad install puts kicad-cli when it is not on PATH."""
 
@@ -169,7 +177,7 @@ def kicad_cli_install_candidates() -> tuple[str, ...]:
         )
     if system == "Windows":
         root = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "KiCad"
-        versions = sorted((d for d in root.iterdir() if d.is_dir()), reverse=True) if root.is_dir() else []
+        versions = sorted((d for d in root.iterdir() if d.is_dir()), key=_version_key, reverse=True) if root.is_dir() else []
         return tuple(str(version / "bin" / "kicad-cli.exe") for version in versions)
     return ("/usr/bin/kicad-cli", "/usr/local/bin/kicad-cli")
 
@@ -299,7 +307,7 @@ class LocalTool:
         tee: bool = False,
     ) -> ToolResult:
         argv = [self.executable(), *(str(part) for part in args)]
-        base = dict(os.environ)
+        base = kicad_libraries.environment()
         base.update(env or {})
         if not self._isolate:
             return _record(
