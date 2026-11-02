@@ -62,7 +62,7 @@ function InsideKiCad({ user }: { user: User }) {
         <BrowserRouter useTransitions={false}>
             <Toaster richColors position="top-right" />
             <div className="min-h-app-viewport bg-background text-foreground">
-                {suspended(<KiCadPartPage partId={params.get('part')} componentId={params.get('component')} user={user} />)}
+                {suspended(<KiCadPartPage partId={params.get('part')} componentId={params.get('component')} openedFromPanel={params.get('back') === '1'} user={user} />)}
             </div>
         </BrowserRouter>
     );

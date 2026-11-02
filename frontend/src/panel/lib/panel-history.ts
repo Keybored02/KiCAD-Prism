@@ -67,6 +67,26 @@ export function writeTop(top: number): void {
   }
 }
 
+/**
+ * Call just before the panel navigates to a Prism page of its own. That page is the entry after this one, so Forward
+ * from the panel's entry leads back to it.
+ */
+export function leavingForPrismPage(): void {
+  const here = readEntry(window.history.state);
+  if (here) writeTop(here.idx + 1);
+}
+
+/** ``url`` marked as opened from the panel, so closing the page there goes back through history to the panel. */
+export function openedFromPanel(url: string): string {
+  try {
+    const marked = new URL(url);
+    marked.searchParams.set("back", "1");
+    return marked.toString();
+  } catch {
+    return url;
+  }
+}
+
 // The list rows already fetched, so a part opened from a list shows its name while the full detail loads.
 const seenComponents = new Map<string, PanelComponent>();
 

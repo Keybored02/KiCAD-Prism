@@ -91,11 +91,6 @@ export function usePanelNavigation(onArrive: (place: PanelPlace) => void) {
 
   const showLogin = useCallback(() => commit({ ...current.current, place: null }), [commit]);
 
-  /** Call before leaving the panel for a page of its own, so Forward comes back to it from the panel's entry. */
-  const leaveForward = useCallback(() => {
-    commit({ ...current.current, top: current.current.idx + 1 });
-  }, [commit]);
-
   return {
     place: position.place,
     canGoBack: position.place !== null && position.idx > 0,
@@ -103,7 +98,6 @@ export function usePanelNavigation(onArrive: (place: PanelPlace) => void) {
     push,
     enter,
     showLogin,
-    leaveForward,
     back: useCallback(() => window.history.back(), []),
     forward: useCallback(() => window.history.forward(), []),
   };

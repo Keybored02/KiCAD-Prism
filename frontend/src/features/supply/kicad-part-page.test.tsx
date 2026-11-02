@@ -21,14 +21,25 @@ function stubLocation() {
 describe("the part page inside KiCad", () => {
   it("shows the part alone and goes back to the panel's view of its component when closed", () => {
     stubLocation();
-    render(<KiCadPartPage partId="p1" componentId="cmp-7" user={null} />);
+    render(<KiCadPartPage partId="p1" componentId="cmp-7" openedFromPanel={false} user={null} />);
     fireEvent.click(screen.getByRole("button", { name: "Close p1" }));
     expect(replace).toHaveBeenCalledWith("/remote-provider/panel?component=cmp-7");
   });
 
+  it("goes back through history when the panel opened it, so the panel's Forward leads here again", () => {
+    stubLocation();
+    window.history.pushState(null, "", "/?part=p1&back=1");
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    render(<KiCadPartPage partId="p1" componentId="cmp-7" openedFromPanel user={null} />);
+    fireEvent.click(screen.getByRole("button", { name: "Close p1" }));
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
+    back.mockRestore();
+  });
+
   it("goes straight back to the panel when the address names no part", () => {
     stubLocation();
-    render(<KiCadPartPage partId={null} componentId={null} user={null} />);
+    render(<KiCadPartPage partId={null} componentId={null} openedFromPanel={false} user={null} />);
     expect(replace).toHaveBeenCalledWith("/remote-provider/panel");
   });
 

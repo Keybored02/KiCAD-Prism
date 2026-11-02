@@ -44,7 +44,7 @@ describe("the availability block", () => {
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByRole("link", { name: "Open TME product page" }).getAttribute("href")).toBe("https://tme.example/a");
     expect(within(rows[1]).getByText("marketplace")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Open in Prism/ }).getAttribute("href")).toBe("https://p/u");
+    expect(screen.getByRole("link", { name: /Open in Prism/ }).getAttribute("href")).toBe("https://p/u?back=1");
   });
 
   it("shows nothing for a component Prism does not track", () => {
