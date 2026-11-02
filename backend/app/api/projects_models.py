@@ -206,6 +206,8 @@ class ProjectOverview(BaseModel):
 
     project: project_service.Project
     readme: Optional[str]
+    # github, gitlab or gitea: lets the README's relative links open on the code host.
+    repository_provider: Optional[str] = None
 
 
 class JobStarted(BaseModel):

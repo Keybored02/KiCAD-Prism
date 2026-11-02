@@ -8,6 +8,7 @@ import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRigh
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { repositoryFileUrl } from "@/lib/repository-url";
 import { invalidateServerState, useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
@@ -65,6 +66,8 @@ interface Project {
     folder_id?: string | null;
     last_modified: string;
     last_synced_at?: string | null;
+    repo_url?: string;
+    sub_path?: string;
 }
 
 interface CommitDistanceResponse {
@@ -74,6 +77,7 @@ interface CommitDistanceResponse {
 interface ProjectOverviewResponse {
     project: Project;
     readme: string | null;
+    repository_provider?: string | null;
 }
 
 interface ProjectBranch {
@@ -140,6 +144,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [searchParams, setSearchParams] = useSearchParams();
     const [project, setProject] = useState<Project | null>(null);
     const [readme, setReadme] = useState<string>("");
+    const [repositoryProvider, setRepositoryProvider] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeSection, setActiveSection] = useState<ProjectSection>(() => (
         sectionFromSearchParams(searchParams)
@@ -353,6 +358,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
                 setProject(overview.project);
                 setReadme(overview.readme ?? "");
+                setRepositoryProvider(overview.repository_provider ?? null);
             } catch (err) {
                 if (cancelled) {
                     return;
@@ -360,6 +366,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 console.error("Failed to fetch project details", err);
                 setProject(null);
                 setReadme("");
+                setRepositoryProvider(null);
             } finally {
                 if (!cancelled) {
                     setLoading(false);
@@ -436,6 +443,13 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         const assetUrl = `/api/projects/${projectId}/asset/${src}`;
         return activeCommit ? `${assetUrl}?commit=${encodeURIComponent(activeCommit)}` : assetUrl;
     };
+
+    const resolveReadmeLinkHref = (href: string | undefined) => repositoryFileUrl(href, {
+        repoUrl: project.repo_url,
+        provider: repositoryProvider,
+        commit: activeCommit,
+        subPath: project.sub_path,
+    });
 
     return (
         <div className="h-app-viewport flex flex-col bg-background">
@@ -734,6 +748,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                             <MarkdownContent
                                                 content={readme}
                                                 resolveImageSrc={resolveProjectAssetSrc}
+                                                resolveLinkHref={resolveReadmeLinkHref}
                                             />
                                         </Suspense>
                                     ) : (
