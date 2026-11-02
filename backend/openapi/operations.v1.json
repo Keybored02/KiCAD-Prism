@@ -1589,6 +1589,11 @@
     "path": "/api/v1/supply/manufacturers",
     "typed": true
   },
+  "list_manufacturing_manufacturers": {
+    "method": "GET",
+    "path": "/api/v1/manufacturing/manufacturers",
+    "typed": true
+  },
   "list_manufacturing_runs": {
     "method": "GET",
     "path": "/api/v1/manufacturing/runs",

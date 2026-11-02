@@ -50211,7 +50211,7 @@
     },
     "/api/v1/manufacturing/manufacturers": {
       "get": {
-        "operationId": "list_manufacturers",
+        "operationId": "list_manufacturing_manufacturers",
         "responses": {
           "200": {
             "content": {
@@ -50221,7 +50221,7 @@
                     "additionalProperties": true,
                     "type": "object"
                   },
-                  "title": "Response List Manufacturers",
+                  "title": "Response List Manufacturing Manufacturers",
                   "type": "array"
                 }
               }
@@ -50229,7 +50229,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "List Manufacturers",
+        "summary": "List Manufacturing Manufacturers",
         "tags": [
           "manufacturing"
         ]

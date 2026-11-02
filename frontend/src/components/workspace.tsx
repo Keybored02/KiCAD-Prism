@@ -171,16 +171,13 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       const next = new URLSearchParams(currentParams);
       if (nextSection === "library-manager" || nextSection === "supply" || nextSection === "manufacturing") {
         next.set("section", nextSection);
-        // Each section owns its own view parameter; leaving one drops the other's.
-        next.delete(nextSection === "supply" ? "libraryView" : "supplyView");
       } else {
         next.delete("section");
       }
-      if (nextSection !== "library-manager") {
-        next.delete("libraryView");
-        next.delete("supplyView");
-        next.delete("session");
-      }
+      // Each section owns its own view parameter; leaving one drops it.
+      if (nextSection !== "library-manager") next.delete("libraryView");
+      if (nextSection !== "supply") next.delete("supplyView");
+      if (nextSection !== "library-manager") next.delete("session");
       return next;
     });
   }, [setSearchParams]);

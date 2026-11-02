@@ -10333,18 +10333,18 @@ class GeneratedClient:
             "/api/v1/trackers/linkable-connectors",
         )
 
-    def list_manufacturers(self) -> list[dict[str, Any]]:
-        """List Manufacturers"""
-        return self._request(
-            "GET",
-            "/api/v1/manufacturing/manufacturers",
-        )
-
     def list_manufacturers(self) -> Items_SupplyManufacturer_:
         """List Manufacturers"""
         return self._request(
             "GET",
             "/api/v1/supply/manufacturers",
+        )
+
+    def list_manufacturing_manufacturers(self) -> list[dict[str, Any]]:
+        """List Manufacturing Manufacturers"""
+        return self._request(
+            "GET",
+            "/api/v1/manufacturing/manufacturers",
         )
 
     def list_manufacturing_runs(self, *, project_id: str | None = None) -> list[dict[str, Any]]:
