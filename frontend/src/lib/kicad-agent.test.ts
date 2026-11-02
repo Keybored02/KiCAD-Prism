@@ -16,7 +16,7 @@ describe("openInSystemBrowser", () => {
   });
 
   it("tries the next port when the first is silent, or is another profile's or an older agent", async () => {
-    for (const first of [new TypeError("refused"), reply(403), reply(404)]) {
+    for (const first of [new TypeError("refused"), reply(401), reply(403), reply(404)]) {
       const fetchMock = vi.fn();
       if (first instanceof Error) fetchMock.mockRejectedValueOnce(first);
       else fetchMock.mockResolvedValueOnce(first);

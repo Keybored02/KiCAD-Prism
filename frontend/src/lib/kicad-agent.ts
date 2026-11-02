@@ -32,9 +32,10 @@ export async function openInSystemBrowser(url: string): Promise<boolean> {
         signal: controller.signal,
       });
       if (response.ok) return true;
-      // 403 or 404 means another profile's agent, or an old one: the next port may do better.
+      // 401, 403 or 404 means another profile's agent, or an old one without the route (those ask
+      // for their token before they say the route is unknown): the next port may do better.
       // Anything else (429, 502) is this agent's real answer.
-      if (response.status !== 403 && response.status !== 404) return false;
+      if (![401, 403, 404].includes(response.status)) return false;
     } catch {
       // Nothing there, refused, or timed out. Try the next port.
     } finally {
