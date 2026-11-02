@@ -90,6 +90,14 @@ from .worktree_diff import uncommitted_changes
 # How old /health's view of the backend may get before it checks again.
 BACKEND_RECHECK_SECONDS = 15
 
+# /open-url opens at most this many browser windows per window of seconds.
+OPEN_URL_LIMIT = 5
+OPEN_URL_WINDOW = 10.0
+OPEN_URL_MAX_LENGTH = 2048
+
+# The only routes a web page may call. Every other route needs the agent token.
+BROWSER_ROUTES = ("/kicad-signin", "/open-url")
+
 log = logging.getLogger(__name__)
 
 
@@ -130,6 +138,23 @@ class AgentState:
         self._backend_reachable = False
         # Kept once known: a release doesn't change under a running agent.
         self._server_plugin: dict | None = None
+        # When /open-url last opened the browser, for the rate limit.
+        self._open_lock = threading.Lock()
+        self._open_times: list[float] = []
+
+    def allow_open_url(self) -> bool:
+        """Whether another browser window may be opened right now.
+
+        /open-url is callable from a web page, so a stuck loop there would otherwise
+        open a tab per iteration. Real use is a click at a time.
+        """
+        now = time.monotonic()
+        with self._open_lock:
+            self._open_times = [t for t in self._open_times if now - t < OPEN_URL_WINDOW]
+            if len(self._open_times) >= OPEN_URL_LIMIT:
+                return False
+            self._open_times.append(now)
+            return True
 
     def backend_status(self) -> tuple[bool, dict | None]:
         """Whether the backend answered, and the plugin version it expects.
@@ -279,7 +304,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Vary", "Origin")
 
     def do_OPTIONS(self):  # noqa: N802 - stdlib naming
-        """CORS preflight. Only /kicad-signin is reachable from a browser."""
+        """CORS preflight. Only the BROWSER_ROUTES are reachable from a browser."""
         self.send_response(204)
         self._cors_headers()
         self.send_header("Content-Length", "0")
@@ -440,10 +465,11 @@ class _Handler(BaseHTTPRequestHandler):
         route = urlparse(self.path)
 
         # Everything needs the agent token, which the browser is never given, except
-        # /kicad-signin. That is reachable from the Prism page, and it is the one route
-        # that hands the agent's own token to a browser: see _kicad_signin for why the
-        # CORS origin check is load-bearing there rather than a convenience.
-        if route.path != "/kicad-signin" and not self._authorised():
+        # the BROWSER_ROUTES, which the Prism page calls and which check its origin
+        # instead. /kicad-signin is the one that hands the agent's own token to a
+        # browser: see _kicad_signin for why the CORS origin check is load-bearing there
+        # rather than a convenience.
+        if route.path not in BROWSER_ROUTES and not self._authorised():
             self._send(401, {"error": "unauthorised"})
             return
 
@@ -797,6 +823,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(*self._kicad_signin(body))
             return
 
+        if route.path == "/open-url":
+            self._send(*self._open_url(body))
+            return
+
         if route.path == "/quit":
             if not self.state.request_stop:
                 self._send(501, {"error": "this agent can't stop itself"})
@@ -838,6 +868,39 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     # -- sign in / out -----------------------------------------------------
+
+    def _open_url(self, body: dict) -> tuple[int, dict]:
+        """Open a link in the user's own browser, for the Remote Symbols panel.
+
+        KiCad's webview keeps every navigation, so a datasheet link there would replace
+        the panel with no way back, and most sites refuse to be framed. The panel asks
+        us instead. Same origin rule as /kicad-signin, but nothing sensitive leaves:
+        this only does what a link click would.
+
+        Only http(s) with a host: a page must not be able to launch file: paths or other
+        applications' URL schemes through the user's desktop.
+        """
+        if not self._allowed_origin():
+            return 403, {"error": "forbidden"}
+
+        url = body.get("url")
+        if not isinstance(url, str) or not url or len(url) > OPEN_URL_MAX_LENGTH:
+            return 400, {"error": "url is required"}
+        if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in url):
+            return 400, {"error": "invalid url"}
+        try:
+            parts = urlparse(url)
+            host = parts.hostname
+        except ValueError:
+            return 400, {"error": "invalid url"}
+        if parts.scheme not in ("http", "https") or not host:
+            return 400, {"error": "only http and https links can be opened"}
+
+        if not self.state.allow_open_url():
+            return 429, {"error": "too many links opened at once"}
+        if not webbrowser.open(url, new=2):
+            return 502, {"error": "No browser could be opened."}
+        return 200, {"ok": True}
 
     def _kicad_signin(self, body: dict) -> tuple[int, dict]:
         """Let Prism's own login page sign the user in as whoever the agent is.
