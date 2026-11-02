@@ -10,6 +10,15 @@ const POLL_MS = 5000;
 // About five minutes; an index that takes longer is still building, and Read now starts the wait again.
 const WAIT_MS = 5 * 60 * 1000;
 
+/** A board-only project: the BOM is read from the schematic, so there is nothing to read. */
+export function ProjectWithoutSchematic() {
+  return (
+    <div className="border border-dashed p-6 text-sm text-muted-foreground">
+      No schematic, so there is no BOM to read. Supply reads the parts from the schematic.
+    </div>
+  );
+}
+
 /**
  * A project whose BOM Prism has not read: one button reads it, or queues its index and looks again until the parts land.
  * The wait shows its time so far.
