@@ -88,7 +88,8 @@ export function KicadLibrariesSettings() {
 
     return (
         <section className="flex flex-col gap-4">
-            <div className="flex items-start justify-between gap-4">
+            {/* The dialog's close icon sits in the top right, so the action goes below the text. */}
+            <div className="flex flex-col items-start gap-3">
                 <div>
                     <h3 className="text-lg font-semibold">KiCad libraries</h3>
                     <p className="text-sm text-muted-foreground max-w-xl">
