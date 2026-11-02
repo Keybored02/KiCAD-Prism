@@ -812,18 +812,27 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
     KICAD_3D_LIBRARY_ENABLED: bool = Field(
         default=False,
         description=(
-            "Clone KiCad's stock 3D models (kicad-packages3d, several GB) at startup and "
-            "bind KICAD9_3DMODEL_DIR and KICAD10_3DMODEL_DIR to them. Footprints that "
+            "The stock 3D library preset: clone KiCad's kicad-packages3d (several GB) at startup "
+            "and bind KICAD9_3DMODEL_DIR and KICAD10_3DMODEL_DIR to it. Footprints that "
             "reference the stock library render without it only if the host has it."
         ),
     )
     KICAD_3D_LIBRARY_DIR: str = Field(
         default="",
-        description="Where that clone lives. Empty: KICAD_PROJECTS_ROOT/.kicad-prism/kicad-packages3d.",
+        description="Where that clone lives. Empty: KICAD_PROJECTS_ROOT/.kicad-prism/libraries/kicad-packages3d.",
     )
     KICAD_3D_LIBRARY_REF: str = Field(
         default="10.0.4",
         description="Tag or branch of kicad-packages3d to clone; match the KiCad version.",
+    )
+    PRISM_KICAD_LIBRARIES: str = Field(
+        default="",
+        description=(
+            "JSON list of libraries behind KiCad path variables a board references. Each entry: "
+            '"name", "variables" (list), and either "git" + "ref" (+ optional "subdir") or "path" '
+            "(a folder already on the host). A declared library wins over the same variable in the "
+            "environment."
+        ),
     )
 
     # ===========================================

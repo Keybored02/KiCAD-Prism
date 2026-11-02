@@ -17,7 +17,7 @@ from typing import IO
 
 from app.core.config import settings
 from app.core import runtime_logging
-from app.services import kicad_3d_library
+from app.services import kicad_libraries
 from app.services.job_handlers import settle_job_end, sweep_job_ends
 from app.services.job_kinds import resource_capacities
 from app.services.job_runtime import job_state_root
@@ -735,7 +735,7 @@ class PrismWorker:
             return
         self.validate_memory_admission()
         self.mount_tracker_composition()
-        kicad_3d_library.start_in_background()
+        kicad_libraries.start_in_background()
         runtime_logging.start_poller()
         logger.info(
             "Worker %s started pool=%s concurrency=%s memory_budget=%sMiB",
