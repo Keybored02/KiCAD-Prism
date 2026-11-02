@@ -36,6 +36,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Protocol, Sequence
 
+from app.services import kicad_libraries
 from app.services.process_tree import group_popen_kwargs, kill_tree
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -299,7 +300,7 @@ class LocalTool:
         tee: bool = False,
     ) -> ToolResult:
         argv = [self.executable(), *(str(part) for part in args)]
-        base = dict(os.environ)
+        base = kicad_libraries.environment()
         base.update(env or {})
         if not self._isolate:
             return _record(
