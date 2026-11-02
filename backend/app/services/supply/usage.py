@@ -133,6 +133,16 @@ USAGE_VERSION = 6
 MAX_VARIANTS = 30
 
 
+def revision_of(payload: Mapping[str, Any]) -> str:
+    """What stored lines were read from: the index's design key, and the usage version.
+
+    An a2 index carries ``designKey``, which changes exactly when the design content does. ``sourceRevisionKey`` is the
+    a1 name. Reading only that one gave every a2 index the same key, so a project's lines never changed after the first read.
+    """
+
+    return f"{payload.get('designKey') or payload.get('sourceRevisionKey') or ''}|u{USAGE_VERSION}"
+
+
 def variant_names(payload: Mapping[str, Any]) -> list[str]:
     """The design variants a semantic index lists, in its order."""
 
@@ -290,7 +300,7 @@ def refresh(
             continue
         lines = lines_from_components(payload.get("components") or [], identities)
         named = {name: lines_from_components(variant_components(payload, name), identities) for name in variant_names(payload)}
-        revision = f"{payload.get('sourceRevisionKey') or ''}|u{USAGE_VERSION}"
+        revision = revision_of(payload)
         roles = (visible_roles or {}).get(str(project.id), ALL_ROLES)
         if store_project(conn, str(project.id), str(project.name), revision, lines, now, roles, named):
             updated += 1
@@ -323,7 +333,7 @@ def refresh_one(
         return "without_index"
     lines = lines_from_components(payload.get("components") or [], identities)
     named = {name: lines_from_components(variant_components(payload, name), identities) for name in variant_names(payload)}
-    revision = f"{payload.get('sourceRevisionKey') or ''}|u{USAGE_VERSION}"
+    revision = revision_of(payload)
     return "updated" if store_project(conn, str(project.id), str(project.name), revision, lines, now, visible_roles, named) else "unchanged"
 
 

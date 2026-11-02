@@ -120,6 +120,19 @@ class LinesTests(unittest.TestCase):
         self.assertEqual((line.alias_key, line.match_key), ("", "LM358"))
 
 
+class RevisionTests(unittest.TestCase):
+    """The stored revision decides whether a project's lines are read again."""
+
+    def test_each_design_key_of_an_a2_index_is_its_own_revision(self) -> None:
+        first = usage.revision_of({"schema": "prism.semantic_index_a2", "designKey": "d1", "components": []})
+        second = usage.revision_of({"schema": "prism.semantic_index_a2", "designKey": "d2", "components": []})
+        self.assertNotEqual(first, second)
+        self.assertEqual(first, f"d1|u{usage.USAGE_VERSION}")
+
+    def test_an_a1_index_still_reads_its_revision_key(self) -> None:
+        self.assertEqual(usage.revision_of({"sourceRevisionKey": "r1"}), f"r1|u{usage.USAGE_VERSION}")
+
+
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply database tests")
 class UsageDatabaseTests(unittest.TestCase):
     @classmethod
@@ -200,7 +213,7 @@ class UsageDatabaseTests(unittest.TestCase):
             return {**component(reference, "Acme", mpn, **fields), "componentUid": uid}
 
         payload = {
-            "sourceRevisionKey": "rev-1",
+            "designKey": "rev-1",
             "components": [part("R1", "R-1", "u1"), part("R2", "R-2", "u2"), part("R3", "R-3", "u3", DNP="Yes")],
             "assembly": {
                 "default": {"components": {"u3": {"dnp": True}}},
@@ -225,7 +238,7 @@ class UsageDatabaseTests(unittest.TestCase):
             self.assertEqual([r["mpn"] for r in usage.project_rows(conn, "pv")], ["R-1", "R-2"], "the base design has R3 as DNP")
             self.assertEqual([r["mpn"] for r in usage.project_rows(conn, "pv", "No R2")], ["R-1"])
             self.assertEqual(usage.project_rows(conn, "pv", "none such"), [])
-            changed = usage.refresh(conn, [project], lambda _p: payload | {"sourceRevisionKey": "rev-2", "assembly": {}}, NOW)
+            changed = usage.refresh(conn, [project], lambda _p: payload | {"designKey": "rev-2", "assembly": {}}, NOW)
             self.assertEqual((changed["updated"], usage.project_variants(conn, "pv")), (1, []), "a new revision replaces the variants too")
 
     def test_a_part_only_a_design_variant_fits_counts_as_in_use(self) -> None:
@@ -233,7 +246,7 @@ class UsageDatabaseTests(unittest.TestCase):
             return {**component(reference, "Acme", mpn, **fields), "componentUid": uid}
 
         payload = {
-            "sourceRevisionKey": "rev-1",
+            "designKey": "rev-1",
             "components": [part("R1", "R-1", "u1"), part("R3", "R-3", "u3", DNP="Yes")],
             "assembly": {"default": {"components": {"u3": {"dnp": True}}}, "variants": [{"name": "Full", "components": {"u3": {"dnp": False}}}]},
         }
@@ -267,7 +280,7 @@ class UsageDatabaseTests(unittest.TestCase):
     def test_refresh_reads_existing_indexes_and_drops_projects_that_are_gone(self) -> None:
         self.store_project("gone", "Removed board", [component("R1", "Acme", "R-1")])
         projects = [SimpleNamespace(id="p1", name="Board A"), SimpleNamespace(id="p2", name="Never opened"), SimpleNamespace(id="p3", name="Broken")]
-        indexes = {"p1": {"sourceRevisionKey": "r1", "components": [component("R1", "Acme", "R-1")]}}
+        indexes = {"p1": {"designKey": "r1", "components": [component("R1", "Acme", "R-1")]}}
 
         def existing(project):
             if project.id == "p3":
@@ -391,7 +404,7 @@ class UsageDatabaseTests(unittest.TestCase):
             return built if row["id"] == "built" else SimpleNamespace(id=row["id"], name=row["id"])
 
         def existing(project, commit=None):
-            return {"sourceRevisionKey": "r1", "components": []} if project is built else None
+            return {"designKey": "r1", "components": []} if project is built else None
 
         with mock.patch.object(workspace, "get_all_projects", return_value=rows),                 mock.patch("app.services.project_service._workspace_row_to_project", side_effect=convert),                 mock.patch("app.services.supply.project_bom.existing_index", side_effect=existing),                 mock.patch("app.services.supply.project_bom.queue_index", return_value=None) as start:
             response = self.call("POST", "/api/supply/bom/usage/build", role="designer")
@@ -402,7 +415,7 @@ class UsageDatabaseTests(unittest.TestCase):
         self.assertEqual(denied.status, 403)
 
     def test_the_refresh_endpoint_reads_every_project_with_its_folders_visibility(self) -> None:
-        index = {"sourceRevisionKey": "r1", "components": [component("R1", "Acme", "R-1")]}
+        index = {"designKey": "r1", "components": [component("R1", "Acme", "R-1")]}
         rows = [
             {"id": "open", "name": "Open board", "visibility_mode": "inherit", "allowed_roles": []},
             {"id": "secret", "name": "Admin only board", "visibility_mode": "roles", "allowed_roles": ["admin"]},
