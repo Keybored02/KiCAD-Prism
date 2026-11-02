@@ -59,6 +59,13 @@ def list_all() -> list[dict[str, Any]]:
         return [_view(row) for row in conn.execute(f"SELECT {_COLUMNS} FROM ws_kicad_libraries ORDER BY name").fetchall()]
 
 
+def list_views() -> list[dict[str, Any]]:
+    """Every library in force for the console: the environment's stock preset (locked), then the declared ones."""
+
+    views = [_stock_view(stock)] if (stock := kicad_libraries.preset()) is not None else []
+    return views + list_all()
+
+
 def get(name: str) -> dict[str, Any]:
     with connect() as conn:
         row = conn.execute(f"SELECT {_COLUMNS} FROM ws_kicad_libraries WHERE name = %s", (name,)).fetchone()
@@ -189,9 +196,9 @@ def _taken_variables(conn: Any, *, exclude: str | None) -> dict[str, str]:
     """Variable to the library that binds it, the environment's stock preset included."""
 
     taken: dict[str, str] = {}
-    preset = kicad_libraries._preset()
-    if preset is not None:
-        taken.update({variable: preset.name for variable in preset.variables})
+    stock = kicad_libraries.preset()
+    if stock is not None:
+        taken.update({variable: stock.name for variable in stock.variables})
     for row in conn.execute("SELECT name, variables FROM ws_kicad_libraries").fetchall():
         if row["name"] != exclude:
             taken.update({variable: row["name"] for variable in row["variables"]})
@@ -202,6 +209,45 @@ def _require_free(library: kicad_libraries.Library, taken: dict[str, str]) -> No
     for variable in library.variables:
         if variable in taken:
             raise Conflict(f"{variable} is already bound by the library {taken[variable]}")
+
+
+def _stock_view(stock: kicad_libraries.Library) -> dict[str, Any]:
+    return {
+        "name": stock.name,
+        "variables": list(stock.variables),
+        "git": stock.git,
+        "ref": stock.ref,
+        "subdir": "",
+        "path": "",
+        "state": "ready" if stock.ready else "pending",
+        "error": None,
+        "progress": None,
+        "sizeBytes": None,
+        "fetchedAt": None,
+        "createdAt": None,
+        "updatedAt": None,
+        "updatedBy": "",
+        "ready": stock.ready,
+        "locked": True,
+    }
+
+
+def _ready(row: dict[str, Any]) -> bool:
+    """Whether the library resolves now: the disk's answer, not the row's ``state``."""
+
+    try:
+        return kicad_libraries.validate_entry(
+            {
+                "name": row["name"],
+                "variables": row["variables"],
+                "git": row["git_url"],
+                "ref": row["ref"],
+                "subdir": row["subdir"],
+                "path": row["path"],
+            }
+        ).ready
+    except ValueError:
+        return False
 
 
 def _view(row: dict[str, Any]) -> dict[str, Any]:
@@ -220,4 +266,6 @@ def _view(row: dict[str, Any]) -> dict[str, Any]:
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
         "updatedBy": row["updated_by"],
+        "ready": _ready(row),
+        "locked": False,
     }

@@ -118,6 +118,22 @@ class KicadLibraryStoreTests(unittest.TestCase):
             store.delete("lsf")
         self.assertEqual(forget.call_count, 3)
 
+    def test_the_console_listing_puts_the_locked_stock_library_first(self) -> None:
+        store.create(LSF, updated_by="")
+        with patch.object(kicad_libraries.settings, "KICAD_3D_LIBRARY_ENABLED", False):
+            self.assertEqual([row["name"] for row in store.list_views()], ["lsf"])
+        with patch.object(kicad_libraries.settings, "KICAD_3D_LIBRARY_ENABLED", True):
+            names = [row["name"] for row in store.list_views()]
+            stock = store.list_views()[0]
+        self.assertEqual(names, [kicad_libraries.STOCK_NAME, "lsf"])
+        self.assertTrue(stock["locked"])
+        self.assertFalse(store.get("lsf")["locked"])
+
+    def test_ready_is_the_disks_answer_not_the_rows(self) -> None:
+        store.create(LSF, updated_by="")
+        store.record_fetch("lsf", state="ready")
+        self.assertFalse(store.get("lsf")["ready"])  # no clone on disk
+
     def test_the_table_forbids_both_sources(self) -> None:
         import psycopg
 

@@ -35,6 +35,9 @@ _PHASES = (("Receiving objects", 0, 85), ("Resolving deltas", 85, 90), ("Updatin
 _PERCENT = re.compile(r"^(?P<phase>[A-Za-z ]+):\s+(?P<percent>\d+)%")
 # Cancellation is checked this often while git runs.
 _CANCEL_CHECK_SECONDS = 2.0
+_CHECK_TIMEOUT_SECONDS = 20
+# The console lists this many of a repository's tags and branches.
+_MAX_LISTED = 100
 
 
 def progress_of(line: str) -> int | None:
@@ -182,6 +185,46 @@ def request_removal(library: kicad_libraries.Library, *, requested_by: str = "")
         subject=_subject(library.name),
         requested_by=requested_by,
     )
+
+
+def check_remote(url: str, ref: str = "") -> dict[str, Any]:
+    """Whether ``url`` answers as a git repository, its tags and branches, and whether ``ref`` is one of them.
+
+    For the console's form: an administrator sees a wrong address or ref before saving.
+    """
+
+    url = url.strip()
+    if not url.startswith("https://"):
+        return {"reachable": False, "error": "Only https:// repositories are supported"}
+    try:
+        done = subprocess.run(
+            ["git", "ls-remote", "--tags", "--heads", "--refs", "--", url],
+            capture_output=True,
+            text=True,
+            timeout=_CHECK_TIMEOUT_SECONDS,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except subprocess.TimeoutExpired:
+        return {"reachable": False, "error": f"No answer within {_CHECK_TIMEOUT_SECONDS} seconds"}
+    except OSError as error:
+        return {"reachable": False, "error": f"git could not run: {error}"}
+    if done.returncode != 0:
+        lines = [line.strip() for line in done.stderr.splitlines() if line.strip()]
+        return {"reachable": False, "error": (lines[-1] if lines else "git ls-remote failed")[:300]}
+    tags, branches = [], []
+    for line in done.stdout.splitlines():
+        _sha, _, name = line.partition(chr(9))
+        if name.startswith("refs/tags/"):
+            tags.append(name.removeprefix("refs/tags/"))
+        elif name.startswith("refs/heads/"):
+            branches.append(name.removeprefix("refs/heads/"))
+    ref = ref.strip()
+    return {
+        "reachable": True,
+        "tags": tags[-_MAX_LISTED:],
+        "branches": branches[:_MAX_LISTED],
+        "refFound": (ref in tags or ref in branches) if ref else None,
+    }
 
 
 def queue_missing() -> list[str]:

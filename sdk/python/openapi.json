@@ -12699,6 +12699,253 @@
         "title": "LatencyTotals",
         "type": "object"
       },
+      "LibraryCreate": {
+        "properties": {
+          "git": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "ref": {
+            "default": "",
+            "title": "Ref",
+            "type": "string"
+          },
+          "subdir": {
+            "default": "",
+            "title": "Subdir",
+            "type": "string"
+          },
+          "variables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "variables"
+        ],
+        "title": "LibraryCreate",
+        "type": "object"
+      },
+      "LibraryList": {
+        "properties": {
+          "libraries": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryView"
+            },
+            "title": "Libraries",
+            "type": "array"
+          },
+          "pathLibrariesEnabled": {
+            "title": "Pathlibrariesenabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "libraries",
+          "pathLibrariesEnabled"
+        ],
+        "title": "LibraryList",
+        "type": "object"
+      },
+      "LibraryUpdate": {
+        "properties": {
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "subdir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subdir"
+          },
+          "variables": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variables"
+          }
+        },
+        "title": "LibraryUpdate",
+        "type": "object"
+      },
+      "LibraryView": {
+        "description": "A library as the console shows it. ``ready`` is whether it resolves now; ``state`` is the fetch's report.",
+        "properties": {
+          "createdAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "fetchedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetchedat"
+          },
+          "git": {
+            "title": "Git",
+            "type": "string"
+          },
+          "locked": {
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sizebytes"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "subdir": {
+            "title": "Subdir",
+            "type": "string"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          },
+          "updatedBy": {
+            "title": "Updatedby",
+            "type": "string"
+          },
+          "variables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "variables",
+          "git",
+          "ref",
+          "subdir",
+          "path",
+          "state",
+          "updatedBy",
+          "ready",
+          "locked"
+        ],
+        "title": "LibraryView",
+        "type": "object"
+      },
       "LinkAssetRequest": {
         "properties": {
           "counterpart_asset_id": {
@@ -17390,6 +17637,77 @@
           "released_at"
         ],
         "title": "ReleasedRevision",
+        "type": "object"
+      },
+      "RemoteCheck": {
+        "properties": {
+          "git": {
+            "maxLength": 2000,
+            "title": "Git",
+            "type": "string"
+          },
+          "ref": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "git"
+        ],
+        "title": "RemoteCheck",
+        "type": "object"
+      },
+      "RemoteCheckResult": {
+        "properties": {
+          "branches": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Branches",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "reachable": {
+            "title": "Reachable",
+            "type": "boolean"
+          },
+          "refFound": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reffound"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reachable"
+        ],
+        "title": "RemoteCheckResult",
         "type": "object"
       },
       "RenderHighlight": {
@@ -39147,6 +39465,238 @@
           }
         },
         "summary": "Forget a pinned Git host key",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries": {
+      "get": {
+        "operationId": "list_libraries",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List KiCad path libraries",
+        "tags": [
+          "settings"
+        ]
+      },
+      "post": {
+        "description": "Declare a library and queue its fetch. A path library must sit under the configured mount root.",
+        "operationId": "create_library",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Declare a KiCad path library",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/check": {
+      "post": {
+        "operationId": "check_remote",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteCheck"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteCheckResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check that a repository and ref exist",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}": {
+      "delete": {
+        "description": "Forget the library and delete its clone. A path library's folder is left alone.",
+        "operationId": "delete_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove a KiCad path library",
+        "tags": [
+          "settings"
+        ]
+      },
+      "patch": {
+        "description": "Change the variables, ref or subfolder. A new ref or subfolder fetches again.",
+        "operationId": "update_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change a KiCad path library",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/fetch": {
+      "post": {
+        "description": "Retry a failed fetch, or refresh a library whose clone was lost.",
+        "operationId": "fetch_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fetch a KiCad path library again",
         "tags": [
           "settings"
         ]

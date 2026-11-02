@@ -242,6 +242,48 @@ class QueueTests(TempRoot):
         self.assertIsNone(fetch.request_removal(libs.Library(name="p", variables=("P",), path="x")))
 
 
+class CheckRemoteTests(unittest.TestCase):
+    def run_git(self, stdout: str = "", stderr: str = "", code: int = 0):
+        done = subprocess.CompletedProcess([], code, stdout=stdout, stderr=stderr)
+        return mock.patch.object(fetch.subprocess, "run", return_value=done)
+
+    def test_lists_tags_and_branches_and_finds_the_ref(self) -> None:
+        listing = chr(10).join(
+            f"{'a' * 40}{chr(9)}refs/{kind}/{name}"
+            for kind, name in (("tags", "v1"), ("tags", "v2"), ("heads", "main"))
+        )
+        with self.run_git(listing):
+            found = fetch.check_remote("https://example.org/x.git", "v2")
+            missing = fetch.check_remote("https://example.org/x.git", "v9")
+            unasked = fetch.check_remote("https://example.org/x.git")
+        self.assertEqual((found["tags"], found["branches"], found["refFound"]), (["v1", "v2"], ["main"], True))
+        self.assertFalse(missing["refFound"])
+        self.assertIsNone(unasked["refFound"])
+
+    def test_only_https(self) -> None:
+        for url in ("http://example.org/x.git", "git@example.org:x.git", "file:///x", "--upload-pack=x"):
+            with self.subTest(url=url), mock.patch.object(fetch.subprocess, "run") as run:
+                self.assertFalse(fetch.check_remote(url)["reachable"])
+                run.assert_not_called()
+
+    def test_a_failing_remote_says_why(self) -> None:
+        with self.run_git(stderr="remote: Repository not found." + chr(10) + "fatal: repository not found", code=128):
+            result = fetch.check_remote("https://example.org/x.git")
+        self.assertEqual(result, {"reachable": False, "error": "fatal: repository not found"})
+
+    def test_a_silent_remote_times_out(self) -> None:
+        timeout = subprocess.TimeoutExpired(["git"], 20)
+        with mock.patch.object(fetch.subprocess, "run", side_effect=timeout):
+            self.assertIn("No answer", fetch.check_remote("https://example.org/x.git")["error"])
+
+    def test_the_command_cannot_be_given_options_or_a_prompt(self) -> None:
+        with self.run_git() as run:
+            fetch.check_remote("https://example.org/x.git")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[-2:], ["--", "https://example.org/x.git"])
+        self.assertEqual(run.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+
+
 class KindTests(unittest.TestCase):
     def test_both_kinds_lock_the_library_name(self) -> None:
         subject = fetch._subject("lsf")

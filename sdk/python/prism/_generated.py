@@ -2304,6 +2304,46 @@ class LatencyTotals(TypedDict, total=True):
     status5xx: int
 
 
+class LibraryCreate(TypedDict, total=False):
+    git: str | None
+    name: str
+    path: str | None
+    ref: str
+    subdir: str
+    variables: list[str]
+
+
+class LibraryList(TypedDict, total=True):
+    libraries: list[LibraryView]
+    pathLibrariesEnabled: bool
+
+
+class LibraryUpdate(TypedDict, total=False):
+    ref: str | None
+    subdir: str | None
+    variables: list[str] | None
+
+
+class LibraryView(TypedDict, total=False):
+    """A library as the console shows it. ``ready`` is whether it resolves now; ``state`` is the fetch's report."""
+    createdAt: str | None
+    error: str | None
+    fetchedAt: str | None
+    git: str
+    locked: bool
+    name: str
+    path: str
+    progress: int | None
+    ready: bool
+    ref: str
+    sizeBytes: int | None
+    state: str
+    subdir: str
+    updatedAt: str | None
+    updatedBy: str
+    variables: list[str]
+
+
 class LinkAssetRequest(TypedDict, total=False):
     counterpart_asset_id: str
     file_path: str
@@ -3226,6 +3266,19 @@ class ReleasedRevision(TypedDict, total=True):
     released_at: str
     revision_id: str
     version: int
+
+
+class RemoteCheck(TypedDict, total=False):
+    git: str
+    ref: str
+
+
+class RemoteCheckResult(TypedDict, total=False):
+    branches: list[str]
+    error: str | None
+    reachable: bool
+    refFound: bool | None
+    tags: list[str]
 
 
 class RenderHighlight(TypedDict, total=False):
@@ -4366,6 +4419,14 @@ class GeneratedClient:
             path_params={"project_id": project_id, "tag": tag},
         )
 
+    def check_remote(self, *, body: dict[str, Any] | None = None) -> RemoteCheckResult:
+        """Check that a repository and ref exist"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/check",
+            body=body,
+        )
+
     def clear_project_thumbnail(self, project_id: str) -> ThumbnailCleared:
         """Drop an uploaded thumbnail and fall back to the rendered board"""
         return self._request(
@@ -4501,6 +4562,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def create_library(self, *, body: dict[str, Any] | None = None) -> LibraryView:
+        """Declare a KiCad path library"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries",
+            body=body,
+        )
+
     def create_metadata_batch(self, *, body: dict[str, Any] | None = None) -> MetadataBatch:
         """Stage a metadata batch"""
         return self._request(
@@ -4612,6 +4681,14 @@ class GeneratedClient:
             "/api/v1/folders/{folder_id}",
             path_params={"folder_id": folder_id},
             query={"cascade": cascade},
+        )
+
+    def delete_library(self, name: str) -> None:
+        """Remove a KiCad path library"""
+        return self._request(
+            "DELETE",
+            "/api/v1/settings/kicad-libraries/{name}",
+            path_params={"name": name},
         )
 
     def delete_project_endpoint(self, project_id: str) -> ProjectDeleted:
@@ -4830,6 +4907,14 @@ class GeneratedClient:
             "GET",
             "/api/v1/catalog/metadata/export.csv",
             query={"field": field},
+        )
+
+    def fetch_library(self, name: str) -> LibraryView:
+        """Fetch a KiCad path library again"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/fetch",
+            path_params={"name": name},
         )
 
     def forget_git_host_key(self, host: str) -> HostKeyForgetResponse:
@@ -5904,6 +5989,13 @@ class GeneratedClient:
             "/api/v1/trackers/identities",
         )
 
+    def list_libraries(self) -> LibraryList:
+        """List KiCad path libraries"""
+        return self._request(
+            "GET",
+            "/api/v1/settings/kicad-libraries",
+        )
+
     def list_linkable_connectors(self) -> list[dict[str, Any]]:
         """List Linkable Connectors"""
         return self._request(
@@ -6882,6 +6974,15 @@ class GeneratedClient:
             "PATCH",
             "/api/v1/folders/{folder_id}",
             path_params={"folder_id": folder_id},
+            body=body,
+        )
+
+    def update_library(self, name: str, *, body: dict[str, Any] | None = None) -> LibraryView:
+        """Change a KiCad path library"""
+        return self._request(
+            "PATCH",
+            "/api/v1/settings/kicad-libraries/{name}",
+            path_params={"name": name},
             body=body,
         )
 

@@ -103,7 +103,7 @@ def mount_root() -> Path:
     return Path(settings.PRISM_KICAD_LIBRARY_MOUNT_ROOT.strip()).expanduser()
 
 
-def _preset() -> Library | None:
+def preset() -> Library | None:
     if not settings.KICAD_3D_LIBRARY_ENABLED:
         return None
     return Library(
@@ -199,9 +199,9 @@ def configured() -> tuple[tuple[Library, ...], list[str]]:
 
     entries: list[Library] = []
     problems: list[str] = []
-    preset = _preset()
-    if preset is not None:
-        entries.append(preset)
+    stock = preset()
+    if stock is not None:
+        entries.append(stock)
     for raw in declared_rows():
         try:
             entries.append(validate_entry(raw))
