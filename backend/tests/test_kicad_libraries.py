@@ -224,28 +224,6 @@ class ResolutionTests(TempRoot):
             self.assertEqual(libs.environment()["PROBE_VAR"], "1")
 
 
-class FetchTests(TempRoot):
-    def test_lock_is_exclusive_and_goes_stale(self) -> None:
-        lock = self.root / "lib.lock"
-        self.assertTrue(libs._try_lock(lock))
-        self.assertFalse(libs._try_lock(lock))
-        old = lock.stat().st_mtime - libs._STALE_LOCK_SECONDS - 1
-        os.utime(lock, (old, old))
-        self.assertFalse(libs._try_lock(lock))  # reclaims the stale lock
-        self.assertTrue(libs._try_lock(lock))  # so the next try wins
-
-    def test_nothing_to_fetch_starts_no_thread(self) -> None:
-        mount = self.root / "mnt"
-        mount.mkdir()
-        with configure(self.root, folder("m", ["M_LIB"], "x"), mount=mount):
-            self.assertIsNone(libs.start_in_background())
-
-    def test_startup_reports_a_bad_row(self) -> None:
-        with configure(self.root, {"name": "broken"}), self.assertLogs(libs.logger, "WARNING") as logged:
-            libs.start_in_background()
-        self.assertIn("broken", logged.output[0])
-
-
 class ConsumerTests(TempRoot):
     """Every KiCad process takes its variables from the resolver."""
 

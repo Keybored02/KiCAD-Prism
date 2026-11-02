@@ -6,7 +6,7 @@ third-party ones and carries no stock 3D models, so an administrator declares
 libraries in Settings (stored in ``ws_kicad_libraries``); the environment adds
 one more, the stock 3D library, with `KICAD_3D_LIBRARY_ENABLED`. A git library
 is cloned once, shallow, into the shared projects volume, so the API and every
-worker see one copy; a path library is a folder under the mount root.
+worker see one copy (fetched by ``kicad_library_fetch``); a path library is a folder under the mount root.
 
 :func:`resolve` is the one answer to "which variable points where". A declared
 library wins over a variable the environment already defines. Nothing here
@@ -18,8 +18,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import shutil
-import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -35,9 +33,6 @@ STOCK_NAME = "kicad-packages3d"
 STOCK_VARIABLES = ("KICAD9_3DMODEL_DIR", "KICAD10_3DMODEL_DIR")
 
 _READY_MARKER = ".prism-ready"
-_POLL_SECONDS = 10
-# A clone that stops reporting progress is abandoned so another process can retry.
-_STALE_LOCK_SECONDS = 15 * 60
 # How long a process trusts the rows it read; a console edit reaches every process within this.
 _ROWS_TTL_SECONDS = 5.0
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -250,97 +245,3 @@ def environment(base: Mapping[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ if base is None else base)
     env.update(resolve().variables)
     return env
-
-
-# -- fetching ---------------------------------------------------------------
-
-
-def _lock_path(library: Library) -> Path:
-    return library.clone_dir.with_name(library.clone_dir.name + ".lock")
-
-
-def _try_lock(lock: Path) -> bool:
-    try:
-        lock.parent.mkdir(parents=True, exist_ok=True)
-        lock.mkdir()
-        return True
-    except FileExistsError:
-        try:
-            if time.time() - lock.stat().st_mtime > _STALE_LOCK_SECONDS:
-                shutil.rmtree(lock, ignore_errors=True)
-        except OSError:
-            pass
-        return False
-
-
-def _clone(library: Library) -> None:
-    directory = library.clone_dir
-    partial = directory.with_name(directory.name + ".partial")
-    shutil.rmtree(partial, ignore_errors=True)
-    logger.info("Cloning %s (%s) into %s; this can take a while.", library.name, library.ref, directory)
-    lock = _lock_path(library)
-    process = subprocess.Popen(
-        ["git", "clone", "--depth", "1", "--single-branch", "--branch", library.ref, "--progress", library.git, str(partial)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    assert process.stderr is not None
-    tail = ""
-    # git's progress keeps the lock fresh.
-    for line in process.stderr:
-        tail = line.strip() or tail
-        try:
-            os.utime(lock)
-        except OSError:
-            pass
-    if process.wait() != 0:
-        shutil.rmtree(partial, ignore_errors=True)
-        raise RuntimeError(f"git clone failed: {tail}")
-    if library.subdir and not (partial / library.subdir).is_dir():
-        shutil.rmtree(partial, ignore_errors=True)
-        raise RuntimeError(f"the clone has no folder {library.subdir!r}")
-    shutil.rmtree(directory, ignore_errors=True)
-    partial.rename(directory)
-    (directory / _READY_MARKER).write_text(library.source + "\n", encoding="utf-8")
-
-
-def _fetch_pending() -> None:
-    reported: set[str] = set()
-    while True:
-        pending = [library for library in configured()[0] if library.git and not library.ready]
-        if not pending:
-            return
-        for library in pending:
-            lock = _lock_path(library)
-            try:
-                if not _try_lock(lock):
-                    continue
-                try:
-                    _clone(library)
-                    logger.info("%s is ready at %s.", library.name, library.folder)
-                except Exception as error:
-                    logger.error("Could not fetch %s: %s. Retrying later.", library.name, error)
-                finally:
-                    shutil.rmtree(lock, ignore_errors=True)
-            except OSError as error:
-                if library.name not in reported:
-                    reported.add(library.name)
-                    logger.error("Library %s is unavailable: %s", library.name, error)
-        time.sleep(_POLL_SECONDS)
-
-
-def start_in_background() -> threading.Thread | None:
-    """Report the configuration's problems and fetch what is missing; never blocks startup."""
-
-    libraries, problems = configured()
-    for problem in problems:
-        logger.warning("KiCad libraries: %s", problem)
-    for library in libraries:
-        if library.path and not library.ready:
-            logger.warning("KiCad library %s: %s is not a folder.", library.name, library.folder)
-    if not any(library.git for library in libraries):
-        return None
-    thread = threading.Thread(target=_fetch_pending, name="kicad-libraries", daemon=True)
-    thread.start()
-    return thread

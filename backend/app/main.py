@@ -76,7 +76,7 @@ from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.core.config import settings
 from app.core import runtime_logging
-from app.services import checkout_line_endings, kicad_libraries
+from app.services import checkout_line_endings, kicad_library_fetch
 from app.core.security_headers import apply_security_headers
 import asyncio
 import os
@@ -228,7 +228,12 @@ async def lifespan(app: FastAPI):
     if sys.platform == "win32":
         # Git for Windows' autocrlf makes a checkout differ from its commit's bytes.
         checkout_line_endings.convert_projects_in_background(Path(settings.KICAD_PROJECTS_ROOT))
-    kicad_libraries.start_in_background()
+    try:
+        queued = await asyncio.to_thread(kicad_library_fetch.queue_missing)
+        if queued:
+            logger.info("Queued fetches for the KiCad libraries: %s", ", ".join(queued))
+    except Exception as exc:
+        logger.warning("Could not queue the KiCad library fetches: %s", exc)
     bring_every_schema_to_head()
     runtime_logging.start_poller()
     try:
