@@ -80,6 +80,9 @@ def cache_key(record: Mapping[str, Any], generator: Generator, tool_version: str
         "gitlinks": gitlinks,
         "kicad_version": generator.kicad_version,
         "models_procedure": generator.models_procedure,
+        # Which libraries stand behind the path variables: a board's models resolve differently
+        # once one is added or its ref moves. Keyed by what a library is, not where it is mounted.
+        "libraries": sorted(kicad_libraries.resolve().fingerprints.items()),
         # The KiCad that exports may be a later patch release of the generator's (decisions.md).
         "tool_version": tool_version,
     }
