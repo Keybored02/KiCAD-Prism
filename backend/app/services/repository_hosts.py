@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from app.core.config import settings
@@ -36,8 +37,17 @@ def remote_hostname(repo_url: str | None) -> str | None:
     return host or None
 
 
-def connector_providers() -> dict[str, str]:
-    """Provider of every configured code-host connection, by hostname."""
+@dataclass(frozen=True)
+class RepositoryHost:
+    provider: str
+    # Scheme, host and port the host's web UI answers on, when a connection
+    # records it. An ssh or scp remote carries only the ssh port, so this is
+    # the one place a self-hosted instance's web port (``:3000``) is known.
+    web_origin: str | None = None
+
+
+def connector_hosts() -> dict[str, RepositoryHost]:
+    """Provider and web origin of every configured code-host connection, by hostname."""
 
     from app.services.postgres_database import database
     from app.services.trackers.connector_service import connector_host
@@ -47,27 +57,47 @@ def connector_providers() -> dict[str, str]:
         rows = conn.execute(
             "SELECT provider, base_url FROM tracker_connectors ORDER BY created_at ASC, id ASC"
         ).fetchall()
-    providers: dict[str, str] = {}
+    hosts: dict[str, RepositoryHost] = {}
     for row in rows:
-        host = connector_host(dict(row)).casefold().removeprefix("www.")
+        row = dict(row)
+        host = connector_host(row).casefold().removeprefix("www.")
         if host:
-            providers.setdefault(host, str(row["provider"]))
-    return providers
+            hosts.setdefault(host, RepositoryHost(str(row["provider"]), _web_origin(row.get("base_url"))))
+    return hosts
 
 
-def repository_provider(
-    repo_url: str | None, *, connectors: Mapping[str, str] | None = None
-) -> str | None:
-    """``github``, ``gitlab`` or ``gitea`` for the remote's host, or ``None`` when unknown."""
+def _web_origin(base_url: str | None) -> str | None:
+    try:
+        parsed = urlsplit((base_url or "").strip())
+    except ValueError:
+        return None
+    if parsed.scheme.casefold() not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
+        return None
+    return f"{parsed.scheme.casefold()}://{parsed.netloc}"
+
+
+def repository_host(
+    repo_url: str | None, *, connectors: Mapping[str, RepositoryHost] | None = None
+) -> RepositoryHost | None:
+    """The code host behind the remote, or ``None`` when Prism was not told about it."""
 
     host = remote_hostname(repo_url)
     if not host:
         return None
-    known = connector_providers() if connectors is None else connectors
+    known = connector_hosts() if connectors is None else connectors
     if host in known:
         return known[host]
     try:
         forge = resolve_forge_host(host, settings.PRISM_FORGE_HOSTS)
     except ForgeHostConfigError:
         return None
-    return forge.kind if forge else None
+    return RepositoryHost(forge.kind) if forge else None
+
+
+def repository_provider(
+    repo_url: str | None, *, connectors: Mapping[str, RepositoryHost] | None = None
+) -> str | None:
+    """``github``, ``gitlab`` or ``gitea`` for the remote's host, or ``None`` when unknown."""
+
+    found = repository_host(repo_url, connectors=connectors)
+    return found.provider if found else None

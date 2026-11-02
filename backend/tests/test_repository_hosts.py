@@ -4,7 +4,12 @@ import unittest
 from unittest import mock
 
 from app.services import repository_hosts
-from app.services.repository_hosts import remote_hostname, repository_provider
+from app.services.repository_hosts import (
+    RepositoryHost,
+    remote_hostname,
+    repository_host,
+    repository_provider,
+)
 
 
 class RemoteHostnameTests(unittest.TestCase):
@@ -21,9 +26,14 @@ class RemoteHostnameTests(unittest.TestCase):
 
 class RepositoryProviderTests(unittest.TestCase):
     def test_a_code_host_connection_names_the_provider(self) -> None:
-        connectors = {"git.acme.test": "gitea", "gitlab.acme.io": "gitlab"}
+        connectors = {"git.acme.test": RepositoryHost("gitea"), "gitlab.acme.io": RepositoryHost("gitlab")}
         self.assertEqual(repository_provider("https://git.acme.test/hw/board.git", connectors=connectors), "gitea")
         self.assertEqual(repository_provider("git@gitlab.acme.io:hw/board.git", connectors=connectors), "gitlab")
+
+    def test_a_connection_supplies_the_web_origin_with_its_port(self) -> None:
+        connectors = {"git.acme.test": RepositoryHost("gitea", "http://git.acme.test:3000")}
+        found = repository_host("ssh://git@git.acme.test:2222/hw/board.git", connectors=connectors)
+        self.assertEqual(found, RepositoryHost("gitea", "http://git.acme.test:3000"))
 
     def test_built_in_forge_hosts_need_no_connection(self) -> None:
         self.assertEqual(repository_provider("https://github.com/org/repo", connectors={}), "github")

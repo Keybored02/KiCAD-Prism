@@ -184,9 +184,10 @@ async def get_project_overview(
     """
     project = get_project_for_role_or_404(project_id, user.role)
     readme = await run_bounded_io(_load_project_readme_content, project, commit)
-    provider = await asyncio.to_thread(repository_hosts.repository_provider, project.repo_url)
+    host = await asyncio.to_thread(repository_hosts.repository_host, project.repo_url)
     return {
         "project": project.model_dump(),
         "readme": readme,
-        "repository_provider": provider,
+        "repository_provider": host.provider if host else None,
+        "repository_web_origin": host.web_origin if host else None,
     }

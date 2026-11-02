@@ -208,6 +208,8 @@ class ProjectOverview(BaseModel):
     readme: Optional[str]
     # github, gitlab or gitea: lets the README's relative links open on the code host.
     repository_provider: Optional[str] = None
+    # Where its web UI answers (with port), from the code-host connection.
+    repository_web_origin: Optional[str] = None
 
 
 class JobStarted(BaseModel):

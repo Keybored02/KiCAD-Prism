@@ -33,6 +33,14 @@ describe("repositoryWebUrl", () => {
     expect(repositoryWebUrl("ssh://git@[::1]/org/repo.git")).toBe("https://[::1]/org/repo");
   });
 
+  it("takes the web origin, port included, from the code-host connection", () => {
+    expect(repositoryWebUrl("ssh://git@git.acme.test:2222/hw/board.git", "http://git.acme.test:3000"))
+      .toBe("http://git.acme.test:3000/hw/board");
+    expect(repositoryWebUrl("git@git.acme.test:hw/board.git", "https://git.acme.test:8443/"))
+      .toBe("https://git.acme.test:8443/hw/board");
+    expect(repositoryWebUrl("not a url", "https://git.acme.test")).toBeNull();
+  });
+
   it("returns null for empty and null input", () => {
     expect(repositoryWebUrl(null)).toBeNull();
     expect(repositoryWebUrl(undefined)).toBeNull();
@@ -64,6 +72,11 @@ describe("repositoryFileUrl", () => {
     expect(repositoryFileUrl("LICENSE", gitlab)).toBe(`https://gitlab.acme.io/hw/boards/main/-/blob/${sha}/LICENSE`);
     expect(repositoryFileUrl("docs/", gitlab)).toBe(`https://gitlab.acme.io/hw/boards/main/-/tree/${sha}/docs`);
     expect(repositoryFileUrl("LICENSE", gitea)).toBe(`https://git.acme.test/hw/board/src/commit/${sha}/LICENSE`);
+  });
+
+  it("keeps the web port on file links", () => {
+    const gitea = { repoUrl: "ssh://git@git.acme.test:2222/hw/board.git", webOrigin: "http://git.acme.test:3000", provider: "gitea", commit: sha };
+    expect(repositoryFileUrl("LICENSE", gitea)).toBe(`http://git.acme.test:3000/hw/board/src/commit/${sha}/LICENSE`);
   });
 
   it("resolves against the project's folder in a monorepo", () => {

@@ -8,7 +8,8 @@ import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRigh
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
-import { repositoryFileUrl } from "@/lib/repository-url";
+import { CodeHostIcon, providerName } from "@/features/code-hosts/code-host-meta";
+import { repositoryFileUrl, repositoryWebUrl } from "@/lib/repository-url";
 import { invalidateServerState, useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
@@ -78,6 +79,7 @@ interface ProjectOverviewResponse {
     project: Project;
     readme: string | null;
     repository_provider?: string | null;
+    repository_web_origin?: string | null;
 }
 
 interface ProjectBranch {
@@ -145,6 +147,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [project, setProject] = useState<Project | null>(null);
     const [readme, setReadme] = useState<string>("");
     const [repositoryProvider, setRepositoryProvider] = useState<string | null>(null);
+    const [repositoryWebOrigin, setRepositoryWebOrigin] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeSection, setActiveSection] = useState<ProjectSection>(() => (
         sectionFromSearchParams(searchParams)
@@ -359,6 +362,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 setProject(overview.project);
                 setReadme(overview.readme ?? "");
                 setRepositoryProvider(overview.repository_provider ?? null);
+                setRepositoryWebOrigin(overview.repository_web_origin ?? null);
             } catch (err) {
                 if (cancelled) {
                     return;
@@ -367,6 +371,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 setProject(null);
                 setReadme("");
                 setRepositoryProvider(null);
+                setRepositoryWebOrigin(null);
             } finally {
                 if (!cancelled) {
                     setLoading(false);
@@ -444,8 +449,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         return activeCommit ? `${assetUrl}?commit=${encodeURIComponent(activeCommit)}` : assetUrl;
     };
 
+    const repositoryPageUrl = repositoryWebUrl(project?.repo_url, repositoryWebOrigin);
+
     const resolveReadmeLinkHref = (href: string | undefined) => repositoryFileUrl(href, {
         repoUrl: project.repo_url,
+        webOrigin: repositoryWebOrigin,
         provider: repositoryProvider,
         commit: activeCommit,
         subPath: project.sub_path,
@@ -584,6 +592,20 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         title="Open in KiCad (requires the Prism agent)"
                     >
                         <ExternalLink className="h-4 w-4" />
+                    </Button>
+                )}
+
+                {repositoryPageUrl && (
+                    <Button variant="outline" size="icon" asChild>
+                        <a
+                            href={repositoryPageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`Open the repository on ${repositoryProvider ? providerName(repositoryProvider) : "its code host"}`}
+                            aria-label="Open the repository in the browser"
+                        >
+                            <CodeHostIcon provider={repositoryProvider} className="h-4 w-4" />
+                        </a>
                     </Button>
                 )}
 

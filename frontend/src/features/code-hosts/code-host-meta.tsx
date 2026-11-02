@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import { Github, Gitlab, Server } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,9 +21,50 @@ export function instanceLabel(provider: string, instanceKind: string): string {
     return instanceKind;
 }
 
-/** Brand marks for the two hosted forges; self-hosted Gitea/Forgejo gets a neutral server mark. */
+/**
+ * Gitea and Forgejo: lucide has no mark for them, so this is drawn to match its
+ * stroke style (24px grid, 2px round stroke): a teacup holding a git branch.
+ */
+function GiteaGlyph({ className }: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+            aria-hidden="true"
+        >
+            <path d="M2 4h15v9a7 7 0 0 1-7 7H9a7 7 0 0 1-7-7z" />
+            <path d="M17 7.5h2a3 3 0 0 1 0 6h-2" />
+            <path d="M7 9.7v3.6" />
+            <circle cx="7" cy="8.5" r="1.2" />
+            <circle cx="7" cy="14.5" r="1.2" />
+            <circle cx="12" cy="11.5" r="1.2" />
+            <path d="M7 13.5c0-1.6 2-2 3.8-1.9" />
+        </svg>
+    );
+}
+
+function glyphFor(provider: string | null | undefined): ComponentType<{ className?: string }> {
+    if (provider === "github") return Github;
+    if (provider === "gitlab") return Gitlab;
+    if (provider === "gitea") return GiteaGlyph;
+    return Server;
+}
+
+/** The bare glyph for a code host; an unknown host gets a neutral server mark. */
+export function CodeHostIcon({ provider, className }: { provider: string | null | undefined; className?: string }) {
+    const Icon = glyphFor(provider);
+    return <Icon className={className} aria-hidden="true" />;
+}
+
+/** The code host's mark in a bordered tile. */
 export function CodeHostMark({ provider, className }: { provider: string; className?: string }) {
-    const Icon = provider === "github" ? Github : provider === "gitlab" ? Gitlab : Server;
+    const Icon = glyphFor(provider);
     return (
         <span
             className={cn(

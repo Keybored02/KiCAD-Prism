@@ -9,13 +9,31 @@
  * host the remote names, so the browsable spelling is `https://host/path` with
  * the transport user dropped and the trailing `.git` removed.
  *
+ * An ssh remote names only the ssh port, so a self-hosted instance served on
+ * another port (`ssh://git@host:2222` with a web UI on `:3000`) would lose it.
+ * `webOrigin` is the origin the code-host connection records for that host and
+ * replaces the derived one.
+ *
  * Returns null when no safe http(s) derivation exists so callers can render
  * the raw remote as plain text instead of a dead link.
  */
 
 const SCP_LIKE_RE = /^[^/@]+@(\[[^\]]+\]|[^/:]+):(.+)$/;
 
-export function repositoryWebUrl(raw: string | null | undefined): string | null {
+export function repositoryWebUrl(raw: string | null | undefined, webOrigin?: string | null): string | null {
+  const derived = deriveWebUrl(raw);
+  const origin = webOrigin?.trim().replace(/\/+$/, "");
+  if (!derived || !origin) {
+    return derived;
+  }
+  try {
+    return `${origin}${derived.slice(new URL(derived).origin.length)}`;
+  } catch {
+    return derived;
+  }
+}
+
+function deriveWebUrl(raw: string | null | undefined): string | null {
   const remote = raw?.trim();
   if (!remote) {
     return null;
@@ -62,6 +80,8 @@ const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 
 export interface RepositoryLinkContext {
   repoUrl: string | null | undefined;
+  /** Origin of the host's web UI, when the code-host connection records one. */
+  webOrigin?: string | null;
   /** `github`, `gitlab` or `gitea`, as the server resolved it for this remote. */
   provider: string | null | undefined;
   /** The commit on screen; links open the file as it was there. */
@@ -88,7 +108,7 @@ export function repositoryFileUrl(href: string | null | undefined, context: Repo
   if (!link || link.startsWith("#") || link.startsWith("//") || SCHEME_RE.test(link)) {
     return null;
   }
-  const webUrl = repositoryWebUrl(context.repoUrl);
+  const webUrl = repositoryWebUrl(context.repoUrl, context.webOrigin);
   if (!webUrl) {
     return null;
   }
