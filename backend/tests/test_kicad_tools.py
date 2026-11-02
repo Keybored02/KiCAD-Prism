@@ -283,10 +283,9 @@ class ProjectFilesKeptTests(unittest.TestCase):
         self.assertFalse((self.root / "other.kicad_prl").exists())
 
     def test_the_files_are_kept_when_the_run_fails(self) -> None:
-        with self.assertRaises(RuntimeError):
-            with kicad_tools.project_files_kept(self.board):
-                self._kicad_loads_the_project()
-                raise RuntimeError("kicad-cli failed")
+        with self.assertRaises(RuntimeError), kicad_tools.project_files_kept(self.board):
+            self._kicad_loads_the_project()
+            raise RuntimeError("kicad-cli failed")
         self.assertEqual((self.root / "b.kicad_prl").read_bytes(), b'{"board": {"active_layer": 37}}\r\n')
 
     def test_board_stats_leave_the_project_files_alone(self) -> None:
