@@ -291,6 +291,22 @@ docker compose logs --tail=200 backend
 docker compose logs --tail=200 catalog-worker
 ```
 
+## Navigation and outside links
+
+KiCad's webview has no browser controls and cannot open the system browser, so
+the panel draws its own Back, Forward and Home bar. The current screen is kept
+in the webview's history, which lets Back and Forward work and lets a reload
+return to the same screen. The part page opened by "Open in Prism" is marked
+`back=1`; closing it goes back through history.
+
+Datasheet and distributor links cannot be shown in the panel (most sites refuse
+to be framed), so the panel asks the local Prism agent to open them with
+`POST /open-url` on `127.0.0.1`. The agent accepts the call only from the
+configured Prism origin, only for `http` and `https` links, and at most five
+per ten seconds. It needs agent 0.5.18 or later and a `server_url` that matches
+the address the panel is served from. When no agent answers, the panel copies
+the link instead.
+
 ## Security notes
 
 - Treat signed asset URLs as short-lived bearer capabilities.
