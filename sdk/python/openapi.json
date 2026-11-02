@@ -26527,6 +26527,18 @@
             "description": "The days left out because one price was read wrong.",
             "title": "Cost History Left Out"
           },
+          "has_schematic": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when no BOM was read: false when the project has no schematic, so there is no BOM to read.",
+            "title": "Has Schematic"
+          },
           "money": {
             "anyOf": [
               {

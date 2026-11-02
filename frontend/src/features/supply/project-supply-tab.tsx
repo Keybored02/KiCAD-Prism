@@ -16,7 +16,7 @@ import { ProjectHeadline } from "./project-headline";
 import { OpenPartSheet } from "./open-part-sheet";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectPartsList } from "./project-parts-list";
-import { ProjectReadNow } from "./project-read-now";
+import { ProjectReadNow, ProjectWithoutSchematic } from "./project-read-now";
 import { getProjectSupply } from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
 import { SettleBadge } from "./settle-badge";
@@ -107,7 +107,7 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
           <ProjectCostHistory supply={supply} />
         </div>
       ) : null}
-      {supply.available ? null : <ProjectReadNow projectId={projectId} onRead={loaded.retry} />}
+      {supply.available ? null : supply.has_schematic === false ? <ProjectWithoutSchematic /> : <ProjectReadNow projectId={projectId} onRead={loaded.retry} />}
       <ProjectSupplyReleases projectId={projectId} releases={supply.releases} />
       <ProjectSupplyNotes supply={supply} />
       {supply.available ? (

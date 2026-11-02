@@ -20,6 +20,7 @@ from app.api.supply_release_models import (
     ProjectPartsPage, ProjectSupply, ReleaseBomKept, ReleaseCheck, ReleaseCompliance, ReleaseSnapshot,
 )
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
+from app.services import project_service
 from app.services.supply import (
     catalog_read, compliance_draft, project_parts, project_supply, release_bom, release_check, release_source, usage,
 )
@@ -46,7 +47,7 @@ async def project_overview(
     """The project's parts, planned builds, releases (with what changed since) and line notes, from its stored BOM. Calls no distributor.
     ``spares`` is "auto" (by package) or a percent."""
 
-    get_project_for_role_or_404(project_id, user.role)
+    project = get_project_for_role_or_404(project_id, user.role)
     try:
         attrition = project_supply.attrition_of(spares)
     except ValueError as exc:
@@ -54,9 +55,22 @@ async def project_overview(
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return project_supply.overview(conn, project_id, variant, build_quantity, attrition)
+            found = project_supply.overview(conn, project_id, variant, build_quantity, attrition)
+        if not found["available"]:
+            has_schematic = _has_schematic(project)
+            if has_schematic is not None:
+                found["has_schematic"] = has_schematic
+        return found
 
     return await _run(read)
+
+
+def _has_schematic(project: Any) -> bool | None:
+    """Whether the checkout has a schematic, which is what the BOM is read from; None without a checkout path."""
+
+    if not getattr(project, "path", ""):
+        return None
+    return bool(project_service.resolved_paths_for(project).schematic)
 
 
 @router.get("/{project_id}/parts", response_model=ProjectPartsPage, response_model_exclude_unset=True)

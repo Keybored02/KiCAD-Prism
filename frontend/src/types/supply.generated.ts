@@ -1759,6 +1759,8 @@ export interface ProjectSupply {
   cost_history?: CostDay[] | null;
   /** The days left out because one price was read wrong. */
   cost_history_left_out?: CostDay[] | null;
+  /** Set when no BOM was read: false when the project has no schematic, so there is no BOM to read. */
+  has_schematic?: boolean | null;
   money?: ProjectMoney | null;
   notes: SupplyBomComment[];
   parts?: ProjectSupplyPart[] | null;

@@ -4849,6 +4849,7 @@ class ProjectSupply(TypedDict, total=False):
     cost_curve: list[ProjectCostPoint] | None
     cost_history: list[CostDay] | None
     cost_history_left_out: list[CostDay] | None
+    has_schematic: bool | None
     money: ProjectMoney | None
     notes: list[SupplyBomComment]
     parts: list[ProjectSupplyPart] | None
