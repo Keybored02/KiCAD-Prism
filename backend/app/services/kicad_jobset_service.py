@@ -17,7 +17,7 @@ from typing import Callable, Literal
 from git import Repo
 
 from app.services.job_runtime import JobContext
-from app.services.kicad_tools import KicadTool, ToolError, kicad_cli
+from app.services.kicad_tools import KicadTool, ToolError, kicad_cli, project_files_kept
 
 
 JobsetRouting = Literal["artifact", "repository"]
@@ -133,7 +133,8 @@ def execute_kicad_jobset(
         force=True,
     )
     try:
-        result = tool.run(args, cwd=project_path_text, timeout=JOBSET_TIMEOUT_SECONDS, tee=True)
+        with project_files_kept(Path(project_path_text) / project_file):
+            result = tool.run(args, cwd=project_path_text, timeout=JOBSET_TIMEOUT_SECONDS, tee=True)
     except ToolError as exc:
         raise RuntimeError(f"KiCad workflow failed: {exc}") from exc
     if not result.ok:

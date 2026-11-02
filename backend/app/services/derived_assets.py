@@ -472,10 +472,12 @@ def restore_kicad_local_state(repo) -> list[str]:
     """Put back tracked ``.kicad_prl`` files that changed in the checkout.
 
     kicad-cli rewrites a project's ``.kicad_prl`` when it loads a project saved by
-    an older KiCad, and Prism runs it on the checkout's own board (the thumbnail
-    render, for one). The file is per-user window and layer state, never design data, and
-    nobody edits a server-managed checkout in KiCad, so a changed one is always
-    ours. Left in place it makes the tree dirty and stops every later fast-forward.
+    an older KiCad, and Prism runs it on the checkout's own board. Those runs keep
+    the file now (``kicad_tools.project_files_kept``); this heals checkouts an
+    older Prism left dirty. The file is per-user window and layer state, never
+    design data, and nobody edits a server-managed checkout in KiCad, so a changed
+    one is always ours. Left in place it makes the tree dirty and stops every
+    later fast-forward.
     """
 
     try:

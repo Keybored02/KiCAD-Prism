@@ -21,7 +21,7 @@ from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
 from app.services.job_kinds import JobKind, JobSubject, repository_lock, subject_lock
-from app.services.kicad_tools import kicad_cli
+from app.services.kicad_tools import kicad_cli, project_files_kept
 from app.services.project_import_followups import (
     retry_import_follow_ups,
     schedule_import_follow_ups,
@@ -506,7 +506,8 @@ def generate_thumbnail_for_project(
             pcb_file
         ]
         
-        result = cli.run(cmd, timeout=120)
+        with project_files_kept(pcb_file):
+            result = cli.run(cmd, timeout=120)
 
         if result.returncode != 0:
             if logs_list is not None:

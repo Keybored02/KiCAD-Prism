@@ -258,5 +258,52 @@ class CallersShareTheLocatorTests(unittest.TestCase):
         self.assertEqual(self.argv[0][0], "/opt/pinned/kicad-cli")
 
 
+class ProjectFilesKeptTests(unittest.TestCase):
+    """kicad-cli rewrites the project's .kicad_prl when it loads a board in the checkout."""
+
+    def setUp(self) -> None:
+        self._temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self._temporary.cleanup)
+        self.root = Path(self._temporary.name)
+        self.board = self.root / "b.kicad_pcb"
+        self.board.write_text("(kicad_pcb)", encoding="utf-8")
+        (self.root / "b.kicad_prl").write_bytes(b'{"board": {"active_layer": 37}}\r\n')
+        (self.root / "b.kicad_pro").write_bytes(b"{}\r\n")
+
+    def _kicad_loads_the_project(self) -> None:
+        (self.root / "b.kicad_prl").write_bytes(b'{"board": {"active_layer": 0}}\n')
+        (self.root / "b.kicad_pro").write_bytes(b'{"meta": {"version": 3}}\n')
+        (self.root / "other.kicad_prl").write_bytes(b"{}\n")
+
+    def test_changed_files_get_their_bytes_back_and_new_ones_go(self) -> None:
+        with kicad_tools.project_files_kept(self.board):
+            self._kicad_loads_the_project()
+        self.assertEqual((self.root / "b.kicad_prl").read_bytes(), b'{"board": {"active_layer": 37}}\r\n')
+        self.assertEqual((self.root / "b.kicad_pro").read_bytes(), b"{}\r\n")
+        self.assertFalse((self.root / "other.kicad_prl").exists())
+
+    def test_the_files_are_kept_when_the_run_fails(self) -> None:
+        with self.assertRaises(RuntimeError):
+            with kicad_tools.project_files_kept(self.board):
+                self._kicad_loads_the_project()
+                raise RuntimeError("kicad-cli failed")
+        self.assertEqual((self.root / "b.kicad_prl").read_bytes(), b'{"board": {"active_layer": 37}}\r\n')
+
+    def test_board_stats_leave_the_project_files_alone(self) -> None:
+        from app.services import kicad_board_stats_service
+
+        test = self
+
+        class RewritingTool:
+            def run(self, argv, timeout, cwd):
+                test._kicad_loads_the_project()
+                Path(argv[argv.index("-o") + 1]).write_text("{}", encoding="utf-8")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+        kicad_board_stats_service.export_board_stats(str(self.board), tool=RewritingTool())
+        self.assertEqual((self.root / "b.kicad_prl").read_bytes(), b'{"board": {"active_layer": 37}}\r\n')
+        self.assertFalse((self.root / "other.kicad_prl").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
