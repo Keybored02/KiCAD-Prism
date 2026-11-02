@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import logging
+import mimetypes
 import re
 import shutil
 import tempfile
@@ -468,6 +469,18 @@ def purge_legacy_in_tree_thumbnails(project_path: str | Path, repo) -> list[str]
     return removed
 
 
+#: Thumbnail types by suffix. ``mimetypes`` reads the platform's table, and WebP is missing from some Windows
+#: registries and from slim images without /etc/mime.types.
+_IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+
+def thumbnail_media_type(path: str | Path) -> str:
+    """The media type a thumbnail file is served with."""
+
+    name = Path(path).name
+    return _IMAGE_TYPES.get(Path(name).suffix.lower()) or mimetypes.guess_type(name)[0] or "application/octet-stream"
+
+
 def restore_kicad_local_state(repo) -> list[str]:
     """Put back tracked ``.kicad_prl`` files that changed in the checkout.
 
@@ -482,7 +495,7 @@ def restore_kicad_local_state(repo) -> list[str]:
 
     try:
         changed = repo.git.diff("--name-only", "-z", "HEAD").split("\0")
-    except Exception:
+    except Exception:  # noqa: BLE001 - any failure to list changes leaves the checkout as it is
         # Without a reliable list of changed files, leave the checkout alone.
         return []
     restored = [path for path in changed if path.lower().endswith(".kicad_prl")]

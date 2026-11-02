@@ -79,6 +79,15 @@ class SyncFastForwardsOnly(unittest.TestCase):
         self.assertTrue(self.origin.fetch.call_args.kwargs["prune"])
         self.repo.git.merge.assert_called_once_with("--ff-only", "origin/main")
 
+    def test_sync_closes_the_repository_it_opened(self) -> None:
+        # Its git processes otherwise hold the checkout for the worker's lifetime.
+        project_import_service.sync_project("prj_1")
+        self.repo.close.assert_called_once()
+        self.repo.close.reset_mock()
+        self.origin.fetch.side_effect = RuntimeError("remote went away")
+        self.assertEqual(project_import_service.sync_project("prj_1")["status"], "error")
+        self.repo.close.assert_called_once()
+
     def test_background_fetch_does_not_change_the_checkout(self) -> None:
         with mock.patch.object(
             project_import_service.derived_assets, "purge_legacy_in_tree_thumbnails"

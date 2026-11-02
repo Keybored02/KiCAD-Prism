@@ -5,7 +5,6 @@ Handles Type-1 (single project) and Type-2 (multiple projects) imports.
 """
 import os
 import hashlib
-import mimetypes
 import shutil
 import tempfile
 from pathlib import Path
@@ -295,12 +294,12 @@ def resolve_cached_paths(
         pcb = resolved.pcb
         thumb = resolved.thumbnail_dir
         jobset = resolved.jobset_path
-        # Make paths relative to project_path
+        # Make paths relative to project_path, with forward slashes on every platform: they are stored and served.
         def _rel(abs_path):
             if not abs_path:
                 return None
             try:
-                return os.path.relpath(abs_path, project_path)
+                return Path(os.path.relpath(abs_path, project_path)).as_posix()
             except ValueError:
                 return None
         # Prism's own render is what a project shows. An image committed under
@@ -349,10 +348,7 @@ def resolve_cached_paths(
 
         if thumbnail_file is not None:
             thumbnail_digest = hashlib.sha256(thumbnail_file.read_bytes()).hexdigest()
-            thumbnail_media_type = (
-                mimetypes.guess_type(thumbnail_file.name)[0]
-                or "application/octet-stream"
-            )
+            thumbnail_media_type = derived_assets.thumbnail_media_type(thumbnail_file)
             thumbnail_size_bytes = thumbnail_file.stat().st_size
         design_dir = resolved.design_outputs_dir
         has_3d = False
@@ -1321,6 +1317,7 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
     if not sync_path or not os.path.exists(sync_path):
         return {"status": "error", "message": f"Project path not found: {sync_path}"}
 
+    repo = None
     try:
         repo = Repo(sync_path)
         origin = repo.remote('origin')
@@ -1402,6 +1399,11 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    finally:
+        # GitPython keeps `git cat-file` processes per Repo; left open they hold the
+        # checkout (on Windows, locked) for as long as the worker lives.
+        if repo is not None:
+            repo.close()
 
 
 PROJECT_ANALYZE = JobKind(
