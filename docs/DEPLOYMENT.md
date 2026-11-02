@@ -528,6 +528,24 @@ deployment has them. `scripts/prism_backup.py` captures all of these; see
 The three domains above are required for complete recovery. Do not place them on ephemeral
 container storage.
 
+## KiCad's stock 3D models
+
+The image does not include KiCad's `kicad-packages3d` library. A footprint
+whose model path starts with `${KICAD10_3DMODEL_DIR}` (or `KICAD9_`) therefore
+shows no 3D model in Prism, even though it renders in your local KiCad.
+`kicad-cli` logs "Could not add 3D model" for each one, and the warnings land
+in the export result.
+
+Set `KICAD_3D_LIBRARY_ENABLED=true` to fix it. On startup the API and the
+workers clone the library once into `data/projects/.kicad-prism/kicad-packages3d`
+(shallow, several GB, needs outbound access to gitlab.com), then set both
+variables for every job that starts afterwards. Boards render with stock models
+once the clone finishes; the logs say when. A variable you set yourself is not
+overridden. `KICAD_3D_LIBRARY_REF` selects the tag; keep it on the image's
+KiCad version.
+
+Models in your own repositories need none of this.
+
 ## Private Git hosting
 
 For SSH:
