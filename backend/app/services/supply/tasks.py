@@ -68,8 +68,10 @@ def _aliases(conn, now: datetime, store: SupplyStore) -> None:
     """A spelling two or more parts of one maker carry becomes that maker's (``settle.learn_aliases``): one pass over every
     spelling, so it runs here rather than after each search."""
 
-    from app.services.supply import settle
+    from app.services.supply import maker_backfill, settle
 
+    # Listings kept as another maker's are looked at again: the maker rules grow, and a spelling learned since may now place them.
+    maker_backfill.resort(conn)
     settle.learn_aliases(conn)
 
 

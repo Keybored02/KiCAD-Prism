@@ -151,6 +151,26 @@ def refresh(conn, *, force: bool = False) -> None:
     _loaded_at = now
 
 
+def _truncated_generic(word: str) -> bool:
+    """A generic word or its cut-short spelling ("Semicon" for "Semiconductors")."""
+
+    return word in GENERIC or (len(word) >= 5 and any(item.startswith(word) for item in GENERIC))
+
+
+def _group_of(key: str, table: Callable[[str], str | None]) -> str | None:
+    """The seeded maker a spelling belongs to: its own key, or a known maker's name followed only by generic words ("NXP Semicon")."""
+
+    found = table(key)
+    if found:
+        return found
+    words = key.split()
+    for size in range(len(words) - 1, 0, -1):
+        head = " ".join(words[:size])
+        if len(head) >= 3 and table(head) and all(_truncated_generic(word) for word in words[size:]):
+            return table(head)
+    return None
+
+
 def _contains(longer: list[str], shorter: list[str]) -> bool:
     size = len(shorter)
     return size > 0 and any(longer[start:start + size] == shorter for start in range(len(longer) - size + 1))
@@ -186,7 +206,7 @@ def same_maker(first: str, second: str, canonical: Callable[[str], str | None] |
     for table in (_CANON.get, lookup):
         if table is None:
             continue
-        a, b = table(one), table(two)
+        a, b = _group_of(one, table), _group_of(two, table)
         if a and b and a == b:
             return True
     short, long_ = sorted((_words(first), _words(second)), key=len)
