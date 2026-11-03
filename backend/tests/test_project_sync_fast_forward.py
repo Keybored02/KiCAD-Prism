@@ -35,7 +35,7 @@ class SyncFastForwardsOnly(unittest.TestCase):
         self.repo.working_tree_dir = str(self.checkout)
         self.repo.head.is_detached = False
         self.repo.is_dirty.return_value = False
-        self.repo.git.diff.return_value = ""
+        self.repo.index.diff.return_value = []
         self.repo.active_branch.name = "main"
         self.repo.active_branch.tracking_branch.return_value = SimpleNamespace(
             name="origin/main"
@@ -269,11 +269,12 @@ class EditingSettingsKeepsSyncFastForwarding(unittest.TestCase):
         self.assertEqual(git(self.checkout, "status", "--porcelain"), "")
 
 
-class KiCadLocalStateKeepsSyncFastForwarding(unittest.TestCase):
-    """kicad-cli rewrites a tracked ``.kicad_prl`` when Prism renders the board.
+class KicadLocalStateDoesNotBlockSync(unittest.TestCase):
+    """kicad-cli's edits to a tracked ``.kicad_prl`` must not freeze the checkout (#1122).
 
-    The checkout then looked edited, and sync stopped fast-forwarding at the
-    commit the project was imported at: Supply kept reading the old schematic.
+    The import's thumbnail render let kicad-cli 10 rewrite the project's local
+    settings in the checkout. Sync then took the checkout for hand-edited and
+    never fast-forwarded again.
     """
 
     def setUp(self) -> None:
@@ -286,8 +287,8 @@ class KiCadLocalStateKeepsSyncFastForwarding(unittest.TestCase):
         git(root, "clone", "-q", str(self.upstream), str(self.author))
         set_identity(self.author)
         (self.author / "board.kicad_pro").write_text("{}", encoding="utf-8")
+        (self.author / "board.kicad_prl").write_text('{"board": {"visible_layers": "fff"}}', encoding="utf-8")
         (self.author / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
-        (self.author / "board one.kicad_prl").write_text('{"board": {"active_layer": 37}}', encoding="utf-8")
         git(self.author, "add", "-A")
         git(self.author, "commit", "-qm", "seed")
         git(self.author, "push", "-q", "origin", "HEAD:main")
@@ -299,32 +300,24 @@ class KiCadLocalStateKeepsSyncFastForwarding(unittest.TestCase):
             "import_type": "single",
             "path": str(self.checkout),
             "parent_repo_path": str(self.checkout),
-            "name": "board",
-            "relative_path": ".",
-            "project_file_rel": "board.kicad_pro",
-            "path_settings": None,
         }
-        path_config_service.clear_config_cache()
-        self.addCleanup(path_config_service.clear_config_cache)
         for patch in (
             mock.patch.object(project_import_service.workspace, "get_project_by_id", return_value=row),
-            mock.patch.object(project_import_service.workspace, "update_project", return_value=True),
             mock.patch.object(project_import_service.workspace, "update_repository_synced"),
             mock.patch.object(project_import_service, "refresh_project_assets"),
         ):
             patch.start()
             self.addCleanup(patch.stop)
-        # What kicad-cli leaves behind after loading the project.
-        (self.checkout / "board one.kicad_prl").write_text('{"board": {"active_layer": 0}}', encoding="utf-8")
 
     def _advance_upstream(self) -> str:
-        (self.author / "board.kicad_sch").write_text('(kicad_sch (property "MPN" "X"))', encoding="utf-8")
+        (self.author / "board.kicad_sch").write_text("(kicad_sch (version 2))", encoding="utf-8")
         git(self.author, "add", "-A")
         git(self.author, "commit", "-qm", "upstream work")
         git(self.author, "push", "-q", "origin", "HEAD:main")
         return git(self.author, "rev-parse", "HEAD")
 
-    def test_a_rewritten_kicad_prl_does_not_block_the_fast_forward(self) -> None:
+    def test_a_rewritten_kicad_prl_is_put_back_and_the_checkout_fast_forwards(self) -> None:
+        (self.checkout / "board.kicad_prl").write_text('{"board": {"visible_layers": "000"}}', encoding="utf-8")
         upstream_head = self._advance_upstream()
 
         result = project_import_service.sync_project("prj_1")
@@ -333,16 +326,17 @@ class KiCadLocalStateKeepsSyncFastForwarding(unittest.TestCase):
         self.assertEqual(git(self.checkout, "rev-parse", "HEAD"), upstream_head, result["message"])
         self.assertEqual(git(self.checkout, "status", "--porcelain"), "")
 
-    def test_a_real_edit_still_blocks_the_fast_forward(self) -> None:
-        before = git(self.checkout, "rev-parse", "HEAD")
-        (self.checkout / "board.kicad_sch").write_text("(kicad_sch (edited))", encoding="utf-8")
+    def test_any_other_local_change_still_blocks_the_fast_forward(self) -> None:
+        (self.checkout / "board.kicad_prl").write_text('{"board": {"visible_layers": "000"}}', encoding="utf-8")
+        (self.checkout / "board.kicad_sch").write_text("(kicad_sch (hand edit))", encoding="utf-8")
+        previous = git(self.checkout, "rev-parse", "HEAD")
         self._advance_upstream()
 
         result = project_import_service.sync_project("prj_1")
 
         self.assertIn("local changes", result["message"])
-        self.assertEqual(git(self.checkout, "rev-parse", "HEAD"), before)
-        self.assertEqual((self.checkout / "board.kicad_sch").read_text(encoding="utf-8"), "(kicad_sch (edited))")
+        self.assertEqual(git(self.checkout, "rev-parse", "HEAD"), previous)
+        self.assertIn("visible_layers\": \"000", (self.checkout / "board.kicad_prl").read_text(encoding="utf-8"))
 
 
 @requires_scratch_postgres("the revision.synced producer")
