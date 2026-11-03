@@ -76,6 +76,21 @@ class TrackingTests(unittest.TestCase):
             part = self.parts.find_part(conn, maker, mpn)
             return self.tracking.tier_of(conn, part.id) if part else None
 
+    def test_tracking_links_a_lines_lcsc_number_at_the_lcsc_and_jlcpcb_connectors(self) -> None:
+        line = component("C1", "Acme", "C-1")
+        line["fields"]["LCSC"] = "C30734"
+        self.project("p1", [line])
+        with self.store.connection() as conn:
+            for provider in ("lcsc", "jlcpcb", "mouser"):
+                conn.execute(
+                    "INSERT INTO supply_connectors (id, provider, storefront, display_name) VALUES (%s, %s, %s, %s)",
+                    (provider, provider, provider, provider),
+                )
+        self.track("p1")
+        with self.store.connection() as conn:
+            rows = conn.execute("SELECT connector_id, sku, match_state FROM supply_listings ORDER BY connector_id").fetchall()
+        self.assertEqual([(r["connector_id"], r["sku"], r["match_state"]) for r in rows], [("jlcpcb", "C30734", "manual"), ("lcsc", "C30734", "manual")])
+
     def test_tracking_a_project_puts_its_parts_in_tier_one_with_the_project_as_reason(self) -> None:
         self.project("p1", [component("R1", "Acme", "R-1"), component("C1", "Acme", "C-1")])
         result = self.track("p1")

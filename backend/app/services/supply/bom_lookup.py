@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import math
+import re
 import uuid
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -773,6 +774,38 @@ def _link_lcsc(conn, connector_id: str, sku: str, part_id: str, mpn: str, manufa
         write_audit(conn, actor, "listing.seed", listing_id,
                     {"part_id": part_id, "connector_id": connector_id, "sku": sku, "source": "bom"}, subject_kind="listing")
     return created is not None
+
+
+_LCSC_NUMBER = re.compile(r"^C\d{2,}$")
+# JLCPCB's assembly parts are LCSC's: the same C-number names the part at both.
+_LCSC_PROVIDERS = ("lcsc", "jlcpcb")
+
+
+def link_project_lcsc(conn, project_id: str, variants: Sequence[str], actor: str) -> int:
+    """Link the LCSC numbers a tracked project's lines carry to their parts, at every usable LCSC and JLCPCB connector, so each is
+    read by its number and not searched for. A number already listed is left as it is. Returns the listings added."""
+
+    connectors = [
+        row["id"] for row in conn.execute(
+            "SELECT id FROM supply_connectors WHERE provider = ANY(%s) AND enabled AND paused_reason = ''", (list(_LCSC_PROVIDERS),)
+        ).fetchall()
+    ]
+    if not connectors:
+        return 0
+    added = 0
+    rows = conn.execute(
+        f"SELECT DISTINCT manufacturer, mpn, lcsc FROM {usage.ALL_USES} WHERE project_id = %s AND variant = ANY(%s) AND match_key <> '' AND lcsc <> ''",
+        (project_id, list(variants)),
+    ).fetchall()
+    for row in rows:
+        number = row["lcsc"].strip().upper()
+        part = parts.find_part(conn, row["manufacturer"], row["mpn"]) if _LCSC_NUMBER.match(number) else None
+        if part is None:
+            continue
+        for connector_id in connectors:
+            with conn.transaction():
+                added += _link_lcsc(conn, connector_id, number, part.id, row["mpn"].strip(), row["manufacturer"].strip(), actor)
+    return added
 
 
 def watch_lines(
