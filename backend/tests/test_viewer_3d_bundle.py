@@ -218,6 +218,61 @@ class ViewerBundleTest(unittest.TestCase):
         with mock.patch.object(v3d.reader, "open_revision_key", return_value=None):
             self.assertIsNone(v3d.member(PROJECT_ID, REVISION_KEY, "e" * 64, v3d.PACK))
 
+    def finished(self) -> OpenedRevision:
+        return self.opened(write_bundle(self.tmp / "b.prism", board="complete", models="complete"))
+
+    def libraries(self, *, now: dict | None = None, recorded: dict | None = None, since: float = 0.0):
+        """The libraries ready now, the ones the bundle recorded (``None``: no record), and when the newest was fetched."""
+
+        reader = v3d.reader
+        self.enterContext(mock.patch.object(reader.kicad_libraries, "resolve", return_value=SimpleNamespace(fingerprints=now or {})))
+        self.enterContext(mock.patch.object(reader.kicad_libraries, "ready_since", return_value=since))
+        self.enterContext(mock.patch.object(reader.store, "read_libraries", return_value=recorded))
+
+    def test_parts_exported_without_a_library_that_is_ready_now_are_outdated(self) -> None:
+        self.libraries(now={"KICAD10_3DMODEL_DIR": "stock", "LSF_KICAD_LIB": "lsf"}, recorded={"KICAD10_3DMODEL_DIR": "stock"})
+        self.assertTrue(v3d.reader.models_outdated(self.finished()))
+
+    def test_parts_exported_with_the_libraries_in_force_are_current(self) -> None:
+        both = {"KICAD10_3DMODEL_DIR": "stock", "LSF_KICAD_LIB": "lsf"}
+        self.libraries(now=both, recorded=dict(both))
+        self.assertFalse(v3d.reader.models_outdated(self.finished()))
+
+    def test_a_bundle_without_a_record_is_outdated_only_if_a_library_came_after_it(self) -> None:
+        opened = self.finished()
+        built = (self.tmp / "b.prism").stat().st_mtime
+        with mock.patch.object(v3d.reader.store, "archive_path", return_value=self.tmp / "b.prism"):
+            self.libraries(now={"LSF_KICAD_LIB": "lsf"}, since=built + 60)
+            self.assertTrue(v3d.reader.models_outdated(opened))
+        with mock.patch.object(v3d.reader.store, "archive_path", return_value=self.tmp / "b.prism"):
+            self.libraries(now={"LSF_KICAD_LIB": "lsf"}, since=built - 60)
+            self.assertFalse(v3d.reader.models_outdated(opened))
+
+    def test_a_bundle_without_a_record_is_current_when_no_library_is_ready(self) -> None:
+        self.libraries(now={}, since=9e12)
+        self.assertFalse(v3d.reader.models_outdated(self.finished()))
+
+    def test_a_bundle_still_building_or_without_parts_is_not_outdated(self) -> None:
+        self.libraries(now={"LSF_KICAD_LIB": "lsf"}, recorded={})
+        building = self.opened(write_bundle(self.tmp / "b.prism", board="complete"), active=True)
+        self.assertFalse(v3d.reader.models_outdated(building))
+        self.assertFalse(v3d.reader.models_outdated(self.opened()))
+
+    def test_status_rebuilds_outdated_parts_and_reads_the_new_bundle(self) -> None:
+        stale, fresh = self.finished(), self.opened(active=True)
+        opener = self.enterContext(mock.patch.object(v3d.reader, "open_revision", side_effect=[stale, fresh]))
+        self.enterContext(mock.patch.object(v3d.reader, "models_outdated", return_value=True))
+        regenerate = self.enterContext(mock.patch.object(v3d.regenerate, "regenerate"))
+        answer = v3d.status(PROJECT_ID, COMMIT, requested_by="dev@example.com")
+        regenerate.assert_called_once_with(PROJECT_ID, commit=COMMIT, requested_by="dev@example.com")
+        self.assertEqual(opener.call_count, 2)
+        self.assertEqual(answer["status"], "building")
+
+    def test_status_keeps_the_bundle_when_the_rebuild_is_refused(self) -> None:
+        self.serve(self.finished())
+        self.enterContext(mock.patch.object(v3d.reader, "models_outdated", return_value=True))
+        self.enterContext(mock.patch.object(v3d.regenerate, "regenerate", side_effect=v3d.regenerate.RegenerateConflict("busy")))
+        self.assertEqual(v3d.status(PROJECT_ID, COMMIT)["status"], "ready")
 
 
 VIEWER = SimpleNamespace(email="viewer@example.com", role="viewer")

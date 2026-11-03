@@ -239,6 +239,23 @@ def resolve() -> Resolution:
     return Resolution(variables, fingerprints)
 
 
+def ready_since() -> float:
+    """When the newest ready git library finished fetching (its marker's mtime); 0 with none.
+
+    A path library has no fetch to date, so it does not count.
+    """
+
+    newest = 0.0
+    for library in configured()[0]:
+        if library.path or not library.ready:
+            continue
+        try:
+            newest = max(newest, (library.clone_dir / _READY_MARKER).stat().st_mtime)
+        except OSError:
+            continue
+    return newest
+
+
 def environment(base: Mapping[str, str] | None = None) -> dict[str, str]:
     """``base`` (default: this process's environment) with every ready library's variables over it."""
 

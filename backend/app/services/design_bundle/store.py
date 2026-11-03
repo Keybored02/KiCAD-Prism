@@ -5,7 +5,9 @@
   <generator_digest>.prism        the archive, rewritten per stage by prism-kicad
   <generator_digest>.prism.verified
                                   the manifest_sha256 `bundle verify` accepted (C2r §2 item 9)
-  <generator_digest>/             unpacked cache; can always be deleted
+  <generator_digest>.libraries.json
+                                  the KiCad libraries the models stage ran with (Prism's, not the format's)
+  <generator_digest>/            unpacked cache; can always be deleted
     <manifest_sha256>/            one archive version
       bundle.json                 written first
       <member path>               extracted lazily, verified, never modified
@@ -26,6 +28,7 @@ step 7 on reads (bundle-format.md §9) and is removed with the archive.
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import os
 import re
@@ -75,6 +78,41 @@ def archive_path(project_id: str, revision_key: str, generator_digest: str) -> P
 def marker_path(project_id: str, revision_key: str, generator_digest: str) -> Path:
     _checked(project_id, revision_key, generator_digest)
     return revision_dir(project_id, revision_key) / f"{generator_digest}.prism.verified"
+
+
+def libraries_path(project_id: str, revision_key: str, generator_digest: str) -> Path:
+    _checked(project_id, revision_key, generator_digest)
+    return revision_dir(project_id, revision_key) / f"{generator_digest}.libraries.json"
+
+
+def write_libraries(project_id: str, revision_key: str, generator_digest: str, fingerprints: Mapping[str, str]) -> None:
+    """Record the KiCad libraries a bundle's models were exported with.
+
+    The archive format has no place for them, and a board's models resolve
+    through them: a bundle built before a library was ready has a component GLB
+    without that library's models. Best effort: a bundle with no record is
+    trusted, so a failed write never causes a rebuild.
+    """
+
+    path = libraries_path(project_id, revision_key, generator_digest)
+    temp = path.parent / f".{path.name}.prism-kicad-{os.getpid()}-{time.monotonic_ns()}.tmp"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp.write_text(json.dumps(dict(fingerprints), sort_keys=True), encoding="utf-8")
+        os.replace(temp, path)
+    except OSError:
+        temp.unlink(missing_ok=True)
+        logger.warning("Could not record the libraries of bundle %s/%s", project_id, revision_key, exc_info=True)
+
+
+def read_libraries(project_id: str, revision_key: str, generator_digest: str) -> dict[str, str] | None:
+    """The libraries recorded by :func:`write_libraries`, or ``None`` for a bundle with no record."""
+
+    try:
+        value = json.loads(libraries_path(project_id, revision_key, generator_digest).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def write_marker(archive: Archive, project_id: str, revision_key: str, generator_digest: str) -> None:
@@ -167,6 +205,7 @@ def open_bundle(project_id: str, revision_key: str, generator_digest: str, bundl
 def delete(project_id: str, revision_key: str, generator_digest: str) -> None:
     archive_path(project_id, revision_key, generator_digest).unlink(missing_ok=True)
     marker_path(project_id, revision_key, generator_digest).unlink(missing_ok=True)
+    libraries_path(project_id, revision_key, generator_digest).unlink(missing_ok=True)
     shutil.rmtree(cache_dir(project_id, revision_key, generator_digest), ignore_errors=True)
     _remove_empty(revision_dir(project_id, revision_key))
 
@@ -187,7 +226,7 @@ def remove_other_generators(project_id: str, revision_key: str, keep_digest: str
     if not directory.is_dir():
         return removed
     for item in directory.iterdir():
-        for suffix in (".prism.verified", ".prism"):
+        for suffix in (".libraries.json", ".prism.verified", ".prism"):
             if item.name.endswith(suffix):
                 digest = item.name[: -len(suffix)]
                 break

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from app.services import kicad_libraries
 from app.services.design_bundle import cli, jobs, reuse, rows, store
 from app.services.design_bundle.archive import Archive
 from app.services.design_bundle.manifest import Readiness, readiness
@@ -141,6 +142,36 @@ def open_revision(project_id: str, commit: str | None = None, *, queue: bool = F
         project_id, key.commit, revision_key, generator.digest, bundle_key, archive, active,
         archive_revision_key=stored_as, aliased=aliased, failure=failure, working_tree_dirty=dirty,
     )
+
+
+def models_outdated(opened: OpenedRevision) -> bool:
+    """Whether the stored component GLB was exported without libraries that are ready now.
+
+    A board's models resolve through KiCad path variables bound to libraries
+    fetched at runtime, and a bundle is otherwise never rebuilt: one built
+    before a library was ready keeps a GLB without its models. A bundle records
+    the libraries its models stage ran with; a differing record is outdated.
+    One without a record predates it and is outdated only when a library became
+    ready after the archive was written. A bundle still being built is not.
+    """
+
+    archive = opened.archive
+    if archive is None or opened.job_active or archive.manifest["stages"]["models"]["status"] not in ("complete", "partial"):
+        return False
+    stored_as = opened.archive_revision_key or opened.revision_key
+    if stored_as is None:
+        return False
+    current = dict(kicad_libraries.resolve().fingerprints)
+    recorded = store.read_libraries(opened.project_id, stored_as, opened.generator_digest)
+    if recorded is not None:
+        return recorded != current
+    if not current:
+        return False
+    try:
+        built = store.archive_path(opened.project_id, stored_as, opened.generator_digest).stat().st_mtime
+    except OSError:
+        return False
+    return kicad_libraries.ready_since() > built
 
 
 def _stored(project_id: str, revision_key: str, generator: Any) -> tuple[str, str, bool, Archive | None]:

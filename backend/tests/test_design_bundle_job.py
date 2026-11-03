@@ -110,6 +110,8 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         self.assertEqual(rows.lookup_key("p1", payload["commit"], result.details["config_digest"]), payload["revision_key"])
         archive = open_archive(store.archive_path("p1", payload["revision_key"], row["generator_digest"]))
         self.assertEqual(manifest.violations(archive.manifest), [])
+        # The libraries the models ran with are recorded beside the archive (none ready in this test).
+        self.assertEqual(store.read_libraries("p1", payload["revision_key"], row["generator_digest"]), {})
         refilled = archive.read("refilled/demo.kicad_pcb").decode()
         self.assertTrue(refilled.endswith("(refilled)\n"))
         self.assertEqual(result.details["invocations"][0]["stage"], "parse")

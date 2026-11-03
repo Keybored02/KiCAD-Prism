@@ -186,6 +186,21 @@ class StoreTests(unittest.TestCase):
         self.path = store.prepare("proj-1", RK, self.digest)
         _write(self.path, self.manifest, self.members)
 
+    def test_the_libraries_record_is_read_back_and_goes_with_the_archive(self) -> None:
+        self.assertIsNone(store.read_libraries("proj-1", RK, self.digest))
+        store.write_libraries("proj-1", RK, self.digest, {"LSF_KICAD_LIB": "git@v1#"})
+        self.assertEqual(store.read_libraries("proj-1", RK, self.digest), {"LSF_KICAD_LIB": "git@v1#"})
+        store.write_libraries("proj-1", RK, self.digest, {})
+        self.assertEqual(store.read_libraries("proj-1", RK, self.digest), {})
+        store.delete("proj-1", RK, self.digest)
+        self.assertIsNone(store.read_libraries("proj-1", RK, self.digest))
+
+    def test_another_generators_libraries_record_goes_with_its_archive(self) -> None:
+        other = "e" * 64
+        store.write_libraries("proj-1", RK, other, {"A": "b"})
+        self.assertEqual(store.remove_other_generators("proj-1", RK, self.digest), [other])
+        self.assertIsNone(store.read_libraries("proj-1", RK, other))
+
     def test_layout(self) -> None:
         self.assertEqual(self.path, self.tmp / "bundles" / "proj-1" / RK / f"{self.digest}.prism")
         with self.assertRaises(ValueError):
