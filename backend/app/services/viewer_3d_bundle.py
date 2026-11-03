@@ -17,11 +17,14 @@ mesh (the mesh path went at System Builder v2, stage 0):
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from app.services.design_bundle import cli, reader, rows
+from app.services.design_bundle import cli, reader, regenerate, rows
 from app.services.design_bundle.manifest import Readiness
+
+logger = logging.getLogger(__name__)
 
 STATUS_SCHEMA = "prism.webgpu_3d_status_a0"
 READINESS_SCHEMA = "prism.visualizer_readiness.a0"
@@ -100,10 +103,27 @@ def _message(view: _View) -> str:
     return ""
 
 
+def _rebuild(opened: reader.OpenedRevision, requested_by: str) -> reader.OpenedRevision:
+    """Rebuild a bundle whose parts were exported without libraries that are ready now.
+
+    The tab shows the board meanwhile: the old archive goes, so the status is
+    "building" until the new one's board stage lands.
+    """
+
+    try:
+        regenerate.regenerate(opened.project_id, commit=opened.commit, requested_by=requested_by)
+    except (regenerate.RegenerateConflict, regenerate.RegenerateNotApplicable, cli.CliUnavailable):
+        return opened
+    logger.info("3D tab: rebuilding %s at %s, its parts predate the KiCad libraries", opened.project_id, opened.commit)
+    return reader.open_revision(opened.project_id, opened.commit, queue=False)
+
+
 def status(project_id: str, commit: str | None, *, requested_by: str = "") -> dict[str, Any]:
     """The tab's status for ``project_id`` at ``commit``, queueing the bundle's build when it needs one."""
 
     opened = reader.open_revision(project_id, commit, queue=True, requested_by=requested_by)
+    if reader.models_outdated(opened):
+        opened = _rebuild(opened, requested_by)
     view = _view(opened)
     revision_key = opened.revision_key or ""
     available = view.status == "ready"

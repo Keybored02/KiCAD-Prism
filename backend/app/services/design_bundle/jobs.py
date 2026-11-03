@@ -43,7 +43,7 @@ from typing import Any, Callable, Mapping
 
 from app.services.ops import stats as ops_stats
 from app.core.config import settings
-from app.services import event_log, kicad_tools, project_revision
+from app.services import event_log, kicad_libraries, kicad_tools, project_revision
 from app.services.design_bundle import (
     cli,
     design_keys,
@@ -504,6 +504,8 @@ class _Run:
     def models(self, archive: Archive) -> Archive:
         sources = self._sources(archive, ["sources/"])
         self.context.progress(stage="bundle-glb", message="Exporting component models", percent=85, force=True)
+        # Read before the export: a library that turns ready during it is then seen as a change.
+        libraries = dict(kicad_libraries.resolve().fingerprints)
         try:
             with kicad_tools.recording() as runs:
                 try:
@@ -520,6 +522,7 @@ class _Run:
                 "--models-glb", str(glb), "--models-tool", self._tool_version(), "--revision-key", self.revision_key,
                 *stage_models.hlr_args(), *cli.limits("models")]
         self.cli(args, "models")
+        store.write_libraries(self.project_id, self.revision_key, self.generator.digest, libraries)
         return self._reopen("models")
 
     def _tool_version(self) -> str:

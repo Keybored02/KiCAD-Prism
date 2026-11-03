@@ -182,6 +182,22 @@ class ResolutionTests(TempRoot):
             self.assertEqual(resolution.variables, {"LSF_KICAD_LIB": str(library.clone_dir)})
             self.assertEqual(resolution.fingerprints, {"LSF_KICAD_LIB": "https://example/lsf.git@v1#"})
 
+    def test_ready_since_is_the_newest_marker_of_a_git_library(self) -> None:
+        with configure(self.root, git(), git("other", ("OTHER_LIB",))):
+            first, second = libs.configured()[0]
+            self.assertEqual(libs.ready_since(), 0.0)
+            self.mark_ready(first)
+            self.mark_ready(second)
+            os.utime(first.clone_dir / ".prism-ready", (1000, 1000))
+            os.utime(second.clone_dir / ".prism-ready", (2000, 2000))
+            self.assertEqual(libs.ready_since(), 2000)
+
+    def test_ready_since_ignores_path_libraries(self) -> None:
+        mount = self.root / "mnt"
+        (mount / "lsf").mkdir(parents=True)
+        with configure(self.root, folder("m", ["M_LIB"], "lsf"), mount=mount):
+            self.assertEqual(libs.ready_since(), 0.0)
+
     def test_changed_ref_is_no_longer_ready(self) -> None:
         with configure(self.root, git()):
             (library,), _ = libs.configured()
