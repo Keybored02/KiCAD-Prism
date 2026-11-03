@@ -615,6 +615,8 @@ export interface DistributorSuggestion {
   status: "ok" | "warning" | "error" | "fatal" | "unknown" | null;
   stock: number | null;
   tracked: boolean;
+  /** The first known distributor page for this suggestion. */
+  url?: string;
 }
 
 export interface DraftPart {
@@ -2429,6 +2431,8 @@ export interface SuffixBody {
 export interface SuggestionSource {
   name: string;
   provider: string;
+  /** The distributor's page for the number it suggested; empty when none is known. */
+  url?: string;
 }
 
 export interface SupplyAlert {

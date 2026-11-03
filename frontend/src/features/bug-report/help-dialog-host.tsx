@@ -85,7 +85,8 @@ function HelpDialogContent({ dialog, authConfig, onDialogChange, onClose }: Help
 
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="max-w-2xl">
+      {/* A toast's action opens this, and Sonner hands focus back to the page as the toast leaves; that must not read as a click outside. */}
+      <DialogContent className="max-w-2xl" onFocusOutside={(event) => event.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{isReport ? "Report a bug" : "About KiCAD Prism"}</DialogTitle>
           <DialogDescription>
