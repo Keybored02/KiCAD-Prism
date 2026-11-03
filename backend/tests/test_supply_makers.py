@@ -73,3 +73,14 @@ class ClassifyByMakerTests(unittest.TestCase):
     def test_a_spelling_the_part_carries_matches_by_its_words(self) -> None:
         self.assertEqual(self._state("Analog Devices", "MAXIM", frozenset({"analog devices inc /maxim integrated"})), "exact")
         self.assertEqual(self._state("Analog Devices", "MAXIM"), "near")
+
+
+class ListingPageUrlTests(unittest.TestCase):
+    def test_a_listing_not_read_yet_still_links_to_its_distributor(self) -> None:
+        from app.services.supply.parts_view import page_url
+
+        self.assertEqual(page_url("jlcpcb", "C3294398", None), "https://jlcpcb.com/partdetail/C3294398")
+        self.assertEqual(page_url("mouser", "603-CC805KRX7R9BB104", None), "https://www.mouser.com/c/?q=603-CC805KRX7R9BB104")
+        self.assertEqual(page_url("digikey", "175-MAX3485AEASA+TCT-ND", None), "https://www.digikey.com/en/products/result?keywords=175-MAX3485AEASA%2BTCT-ND")
+        self.assertEqual(page_url("farnell", "2987354", None), "")
+        self.assertEqual(page_url("jlcpcb", "C1", "https://jlcpcb.com/partdetail/X/C1"), "https://jlcpcb.com/partdetail/X/C1")
