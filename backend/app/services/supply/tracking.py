@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any, Iterable, Sequence
 
-from app.services.supply import admission, clock, component_parts, packaging_auto, parts, usage
+from app.services.supply import admission, bom_lookup, clock, component_parts, packaging_auto, parts, usage
 from app.services.supply.providers import registry
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.progress import job_progress
@@ -193,6 +193,7 @@ def track_project(
                     ).fetchall()
                 ],
             })
+    bom_lookup.link_project_lcsc(conn, project_id, chosen, actor)
     excluded: list[str] = []
     built_at: list[str] = []
     if connector_ids is not None:
@@ -313,6 +314,7 @@ def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "
                 continue  # not in the Component Database: shown on the project, never followed
             except parts.UnknownManufacturer:
                 continue  # several makers have this number and the line does not say which: it waits for a choice
+        bom_lookup.link_project_lcsc(conn, project["project_id"], list(project["variants"]), actor)
     recompute(conn)
     admission.sync(conn)
     return {"parts_created": created}

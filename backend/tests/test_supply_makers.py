@@ -25,8 +25,14 @@ class SameMakerTests(unittest.TestCase):
             ("Maxim Integrated", "Analog Devices Inc./Maxim Integrated"),
             ("Renesas", "Renasas"), ("W" + chr(0xFFFD) + "rth Elektronik", "Wurth Elektronik"), ("W" + chr(0xFC) + "rth Elektronik", "Wurth Elektronik"),
             ("KYOCERA AVX", "AVX"),
+            ("NXP Semicon", "NXP USA Inc."), ("NXP Semicon", "NXP Semiconductors"), ("NXP Semicon", "NXP"),
         ]:
             self.assertTrue(same_maker(one, two), f"{one} / {two}")
+
+    def test_a_known_makers_name_cut_short_is_still_that_maker(self) -> None:
+        self.assertTrue(same_maker("Analog Devices Inc./Maxim Integrated", "MAXIM"))
+        self.assertFalse(same_maker("NXP Semicon", "Nexperia"))
+        self.assertFalse(same_maker("TI Foo", "Texas Instruments"))
 
     def test_different_makers_stay_different(self) -> None:
         for one, two in [
@@ -45,3 +51,36 @@ class SameMakerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClassifyByMakerTests(unittest.TestCase):
+    """The prod cases: the same number under a maker spelling the part's own name does not spell."""
+
+    @staticmethod
+    def _state(part_maker: str, spelling: str, known: frozenset[str] = frozenset()) -> str:
+        from app.services.supply import parts
+        from app.services.supply.discovery import classify
+        from app.services.supply.identity import match_key
+        from app.services.supply.models import PartMatch
+
+        part = parts.PartRecord("p", "m", part_maker, "LPC1112FHN33/202,5", match_key("LPC1112FHN33/202,5"))
+        match = PartMatch(provider="lcsc", sku="C1", mpn="LPC1112FHN33/202,5", manufacturer=spelling)
+        return classify(part, match, parts.Resolution(None, "pending"), known)[0]
+
+    def test_a_cut_short_maker_name_matches_the_makers_usual_spellings(self) -> None:
+        self.assertEqual(self._state("NXP Semicon", "NXP USA Inc."), "exact")
+
+    def test_a_spelling_the_part_carries_matches_by_its_words(self) -> None:
+        self.assertEqual(self._state("Analog Devices", "MAXIM", frozenset({"analog devices inc /maxim integrated"})), "exact")
+        self.assertEqual(self._state("Analog Devices", "MAXIM"), "near")
+
+
+class ListingPageUrlTests(unittest.TestCase):
+    def test_a_listing_not_read_yet_still_links_to_its_distributor(self) -> None:
+        from app.services.supply.parts_view import page_url
+
+        self.assertEqual(page_url("jlcpcb", "C3294398", None), "https://jlcpcb.com/partdetail/C3294398")
+        self.assertEqual(page_url("mouser", "603-CC805KRX7R9BB104", None), "https://www.mouser.com/c/?q=603-CC805KRX7R9BB104")
+        self.assertEqual(page_url("digikey", "175-MAX3485AEASA+TCT-ND", None), "https://www.digikey.com/en/products/result?keywords=175-MAX3485AEASA%2BTCT-ND")
+        self.assertEqual(page_url("farnell", "2987354", None), "")
+        self.assertEqual(page_url("jlcpcb", "C1", "https://jlcpcb.com/partdetail/X/C1"), "https://jlcpcb.com/partdetail/X/C1")

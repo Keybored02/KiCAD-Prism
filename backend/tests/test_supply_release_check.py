@@ -286,6 +286,22 @@ class ReleaseCheckTests(unittest.TestCase):
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_0")):
             self.assertFalse(self.request("prj_0/supply").json["available"])
 
+    def test_a_project_without_a_bom_says_whether_it_has_a_schematic_to_read(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as board_only, tempfile.TemporaryDirectory() as with_schematic:
+            (Path(board_only) / "b.kicad_pro").write_text("{}", encoding="utf-8")
+            (Path(board_only) / "b.kicad_pcb").write_text("(kicad_pcb)", encoding="utf-8")
+            (Path(with_schematic) / "s.kicad_pro").write_text("{}", encoding="utf-8")
+            (Path(with_schematic) / "s.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+            answers = {}
+            for name, path in (("board_only", board_only), ("with_schematic", with_schematic)):
+                project = SimpleNamespace(id=f"prj_{name}", path=path)
+                with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+                    answers[name] = self.request(f"prj_{name}/supply").json
+        self.assertEqual((answers["board_only"]["available"], answers["board_only"]["has_schematic"]), (False, False))
+        self.assertEqual((answers["with_schematic"]["available"], answers["with_schematic"]["has_schematic"]), (False, True))
+
     def test_the_page_costs_the_boards_and_spares_it_is_given_and_counts_at_risk_as_error_or_fatal(self) -> None:
         from app.services.supply import usage
 

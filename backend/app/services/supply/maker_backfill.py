@@ -1,4 +1,4 @@
-"""Sort the listings that waited under the old rules again under the new ones (migration 56). Functions on a connection."""
+"""Sort the listings that waited under the old rules again under the new ones (run by the aliases task). Functions on a connection."""
 
 from __future__ import annotations
 
@@ -9,6 +9,16 @@ from app.services.supply.models import PartMatch
 
 def run(conn) -> dict[str, int]:
     """Listings waiting on a spelling, or near, are classified again; provisional parts settle; spellings are learned."""
+
+    moved = resort(conn)
+    learned = settle.learn_aliases(conn)
+    # A spelling nobody waits on is not a question any more.
+    conn.execute("DELETE FROM supply_manufacturer_aliases WHERE status = 'pending'")
+    return {"listings": moved, "learned": learned}
+
+
+def resort(conn) -> int:
+    """Classify the waiting and near listings again under today's rules. Returns how many changed state."""
 
     moved = 0
     rows = conn.execute(
@@ -32,7 +42,4 @@ def run(conn) -> dict[str, int]:
             conn.execute("UPDATE supply_listings SET match_reason = %s WHERE id = %s", (reason, row["id"]))
         if state == "exact":
             parts.record_spelling(conn, part.id, match.manufacturer, "learned")
-    learned = settle.learn_aliases(conn)
-    # A spelling nobody waits on is not a question any more.
-    conn.execute("DELETE FROM supply_manufacturer_aliases WHERE status = 'pending'")
-    return {"listings": moved, "learned": learned}
+    return moved

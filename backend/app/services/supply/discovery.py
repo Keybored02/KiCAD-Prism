@@ -72,7 +72,7 @@ def classify(
         return NEAR, (LONGER if key.startswith(part.match_key) else "different part number")
     if resolution.status == "confirmed" and resolution.manufacturer_id == part.manufacturer_id:
         return EXACT, "part number and manufacturer match"
-    if alias_key(match.manufacturer) in known or same_maker(match.manufacturer, part.manufacturer_name):
+    if alias_key(match.manufacturer) in known or same_maker(match.manufacturer, part.manufacturer_name) or any(same_maker(match.manufacturer, spelling) for spelling in known):
         return EXACT, "same maker as the part"
     return NEAR, "same part number, different manufacturer"
 

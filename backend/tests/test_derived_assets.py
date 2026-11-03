@@ -469,3 +469,13 @@ class ThumbnailIdentityIsStable(unittest.TestCase):
                 self.project, kind="custom", anchor="solo.kicad_pro"
             )
         )
+
+
+class ThumbnailMediaTypeIsKnownEverywhere(unittest.TestCase):
+    """WebP is missing from some platforms' mimetypes tables; the render is a WebP."""
+
+    def test_a_render_is_webp_without_the_platform_table(self) -> None:
+        with mock.patch.object(derived_assets.mimetypes, "guess_type", return_value=(None, None)):
+            self.assertEqual(derived_assets.thumbnail_media_type("thumbnail.0123abcd.webp"), "image/webp")
+            self.assertEqual(derived_assets.thumbnail_media_type("assets/thumbnail/Board.PNG"), "image/png")
+            self.assertEqual(derived_assets.thumbnail_media_type("notes.txt"), "application/octet-stream")

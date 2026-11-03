@@ -461,6 +461,40 @@ class KicadTools:
         )
 
 
+#: Project files kicad-cli writes when it loads a board: local state, and the project file an older KiCad saved.
+_PROJECT_FILE_PATTERNS = ("*.kicad_prl", "*.kicad_pro")
+
+
+@contextmanager
+def project_files_kept(board: str | Path) -> Iterator[None]:
+    """Leave the KiCad project files next to ``board`` as they were before the run.
+
+    kicad-cli rewrites a project's ``.kicad_prl`` when it loads a board, and can
+    migrate the ``.kicad_pro`` of an older KiCad's project. Prism runs it on
+    boards inside a server-managed checkout, where any such change makes the tree
+    dirty and stops Sync fast-forwarding. Changed files get their bytes back and
+    files the run created are removed.
+    """
+
+    directory = Path(board).parent
+    before = {
+        path: path.read_bytes()
+        for pattern in _PROJECT_FILE_PATTERNS
+        for path in directory.glob(pattern)
+        if path.is_file()
+    }
+    try:
+        yield
+    finally:
+        for pattern in _PROJECT_FILE_PATTERNS:
+            for path in directory.glob(pattern):
+                if path not in before:
+                    path.unlink(missing_ok=True)
+        for path, data in before.items():
+            if not path.is_file() or path.read_bytes() != data:
+                path.write_bytes(data)
+
+
 __all__ = [
     "KICAD_CLI",
     "CancelCheck",
@@ -475,4 +509,5 @@ __all__ = [
     "kicad_cli",
     "kicad_cli_install_candidates",
     "locate_kicad_cli",
+    "project_files_kept",
 ]

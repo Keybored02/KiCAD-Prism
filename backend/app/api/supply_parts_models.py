@@ -94,6 +94,7 @@ class RowDistributor(SupplyModel):
     stock: int
     price: Optional[str]
     currency: str
+    marketplace: bool = Field(default=False, description="Only marketplace or assembly stock: shown apart, not in the part's stock.")
 
 
 class SupplyRowOffer(SupplyModel):
