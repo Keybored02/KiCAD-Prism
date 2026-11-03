@@ -23,7 +23,7 @@ export function installErrorToastReportAction(): void {
   const withReportAction: ErrorToast = (message, data) =>
     original(message, {
       ...data,
-      action: data?.action ?? { label: "Report bug", onClick: () => openHelpDialog("report-bug") },
+      action: data?.action ?? { label: "Report bug", onClick: () => { setTimeout(() => openHelpDialog("report-bug"), 0); } },
     });
   withReportAction[INSTALLED] = true;
   toast.error = withReportAction;

@@ -11913,6 +11913,12 @@
           "tracked": {
             "title": "Tracked",
             "type": "boolean"
+          },
+          "url": {
+            "default": "",
+            "description": "The first known distributor page for this suggestion.",
+            "title": "Url",
+            "type": "string"
           }
         },
         "required": [
@@ -32597,6 +32603,12 @@
           },
           "provider": {
             "title": "Provider",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "description": "The distributor's page for the number it suggested; empty when none is known.",
+            "title": "Url",
             "type": "string"
           }
         },

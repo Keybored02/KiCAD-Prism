@@ -591,6 +591,7 @@ class AlternativeCandidate(PartStanding):
 class SuggestionSource(SupplyModel):
     provider: str
     name: str
+    url: str = Field(default="", description="The distributor's page for the number it suggested; empty when none is known.")
 
 
 class DistributorSuggestion(SupplyModel):
@@ -601,6 +602,7 @@ class DistributorSuggestion(SupplyModel):
     sku: str
     notes: list[str] = Field(description="Their words: the package, or how close DigiKey says it is.")
     sources: list[SuggestionSource]
+    url: str = Field(default="", description="The first known distributor page for this suggestion.")
     asked: bool = Field(description="Asked for from DigiKey, not seen in an offer read.")
     part_id: Optional[str] = Field(description="The part in Prism, when it is one.")
     stock: Optional[int]

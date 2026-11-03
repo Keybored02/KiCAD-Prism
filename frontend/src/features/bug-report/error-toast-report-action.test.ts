@@ -10,6 +10,7 @@ import { installErrorToastReportAction } from "./error-toast-report-action";
 
 describe("installErrorToastReportAction", () => {
   it("adds a Report bug action that opens the bug report preview, once", () => {
+    vi.useFakeTimers();
     installErrorToastReportAction();
     installErrorToastReportAction();
 
@@ -21,6 +22,9 @@ describe("installErrorToastReportAction", () => {
     expect(data.duration).toBe(5000);
     expect(data.action.label).toBe("Report bug");
     data.action.onClick();
+    // Opened once the toast has left, so the toast's focus hand-back cannot close it.
+    vi.runAllTimers();
+    vi.useRealTimers();
     expect(openHelpDialog).toHaveBeenCalledWith("report-bug");
   });
 

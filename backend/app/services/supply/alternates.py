@@ -107,7 +107,7 @@ def for_part(conn, part_id: str) -> list[dict[str, Any]]:
         })
         if row["mpn"] and not entry["mpn"]:
             entry.update(manufacturer=row["manufacturer"], mpn=row["mpn"])
-        entry["sources"].append({"provider": row["provider"], "name": facts.source_label(row["provider"])})
+        entry["sources"].append({"provider": row["provider"], "name": facts.source_label(row["provider"]), "sku": row["sku"]})
         if row["note"] and row["note"] not in entry["notes"]:
             entry["notes"].append(row["note"])
         entry["asked"] = entry["asked"] or row["origin"] == "asked"

@@ -763,6 +763,10 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual([source["provider"] for source in found["LM358ADR"]["sources"]], ["lcsc", "mouser"], "one row, every distributor that said it, in name order")
             self.assertIsNone(found["NOPE-1"]["part_id"])
             self.assertEqual([entry["tracked"] for entry in suggested if entry["part_id"] == known], [True])
+            linked = {entry["mpn"] or entry["sku"]: entry for entry in suggested}
+            self.assertEqual([source["url"] for source in linked["LM358ADR"]["sources"]], ["https://www.lcsc.com/product-detail/C1.html", ""], "LCSC's number links to its page, a Mouser listing without one does not")
+            self.assertEqual(linked["LM358ADR"]["url"], "https://www.lcsc.com/product-detail/C1.html")
+            self.assertEqual(linked["595-LM358ADR"]["url"], "https://www.mouser.com/c/?q=595-LM358ADR", "a Mouser number searches Mouser")
             alternates.replace(conn, part_id, "lcsc", [], self.now)
             left = {entry["mpn"] or entry["sku"] for entry in alternates.for_part(conn, part_id)}
         self.assertEqual(left, {"595-LM358ADR", "LM358ADR"}, "an empty set removes what LCSC said and leaves Mouser's")
