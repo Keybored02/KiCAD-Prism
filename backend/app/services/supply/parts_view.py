@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import statistics
+from urllib.parse import quote
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -806,6 +807,14 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         for connector_id, entry in by_connector.items():
             # By pile, as the part's stock counts it: cut tape and custom reel are one shelf.
             entry["stock"] = stock.connector_stock(entry["provider"], held[connector_id])
+        # Marketplace and assembly stock stays out of the part's figures, but the distributor is still shown, apart.
+        for offer in offers.get(item["id"], []):
+            if offer["marketplace"] and offer["connector_id"] not in by_connector:
+                by_connector[offer["connector_id"]] = {
+                    "connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"],
+                    "stock": max(int(other["stock"] or 0) for other in offers[item["id"]] if other["connector_id"] == offer["connector_id"]),
+                    "price": None, "currency": "", "marketplace": True,
+                }
         flags = []
         if item["id"] in waiting:
             flags.append("waiting")
@@ -1032,16 +1041,21 @@ def _price_block(conn, part_id: str, now: datetime, kept: Mapping[str, Any]) -> 
 
 
 # Distributors whose product page is known from the number alone, for a listing not read yet.
-_PAGE_URLS = {"lcsc": "https://www.lcsc.com/product-detail/{}.html", "tme": "https://www.tme.eu/en/details/{}/"}
+_PAGE_URLS = {
+    "lcsc": "https://www.lcsc.com/product-detail/{}.html", "tme": "https://www.tme.eu/en/details/{}/",
+    "jlcpcb": "https://jlcpcb.com/partdetail/{}",
+    # A search for the distributor's own number: it lands on the part.
+    "digikey": "https://www.digikey.com/en/products/result?keywords={}", "mouser": "https://www.mouser.com/c/?q={}",
+}
 
 
-def _page_url(provider: str, sku: str, read_url: str | None) -> str:
+def page_url(provider: str, sku: str, read_url: str | None) -> str:
     """The distributor's page for a listing: the one its last reading gave, else one built from the number."""
 
     if https_link(read_url):
         return https_link(read_url)
     pattern = _PAGE_URLS.get(provider)
-    return pattern.format(sku.lower() if provider == "tme" else sku) if pattern and sku and "/" not in sku else ""
+    return pattern.format(quote(sku.lower() if provider == "tme" else sku, safe="")) if pattern and sku and "/" not in sku else ""
 
 
 def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
@@ -1102,7 +1116,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             "raw_mpn": r["raw_mpn"] or "",
             "raw_manufacturer": r["raw_manufacturer"] or "",
             "match_reason": r["match_reason"] or "",
-            "page_url": _page_url(r["provider"], r["sku"], r["product_url"]),
+            "page_url": page_url(r["provider"], r["sku"], r["product_url"]),
             "counted": r["match_state"] in counted.STATES,
             "offer": {
                 "fetched_at": iso(r["fetched_at"]),
