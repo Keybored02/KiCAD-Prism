@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupplyChoice, SupplyMatched } from "@/types/supply";
 
-vi.mock("./supply-api", () => ({ chooseSupplyMaker: vi.fn(), otherSupplyMaker: vi.fn(), undoLearnedAlias: vi.fn(), undoSettledPart: vi.fn(), markPartNumbers: vi.fn() }));
+vi.mock("./supply-api", () => ({ chooseSupplyMaker: vi.fn(), otherSupplyMaker: vi.fn(), undoLearnedAlias: vi.fn(), undoSettledPart: vi.fn(), acceptMatched: vi.fn(), markPartNumbers: vi.fn() }));
 
 import { MakerChoices } from "./maker-choices";
 import { MatchedByPrism } from "./matched-by-prism";
@@ -90,6 +90,26 @@ describe("what Prism matched", () => {
     fireEvent.click(screen.getByRole("button", { name: /Matched by Prism/ }));
     fireEvent.click(screen.getAllByRole("button", { name: "Undo" })[1]);
     await waitFor(() => expect(mocked.undoSettledPart).toHaveBeenCalledWith("p9"));
+  });
+
+  it("accepts everything listed with one click and shows no accept to those who may not decide", async () => {
+    mocked.acceptMatched.mockResolvedValue({ aliases: 1, parts: 1 });
+    const decided = vi.fn().mockResolvedValue(undefined);
+    const { unmount } = render(<MemoryRouter><MatchedByPrism matched={matched} canDecide onDecided={decided} /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "Accept all" }));
+    await waitFor(() => expect(mocked.acceptMatched).toHaveBeenCalledWith({ aliasKeys: ["acme co"], partIds: ["p9"] }));
+    await waitFor(() => expect(decided).toHaveBeenCalled());
+    unmount();
+    render(<MemoryRouter><MatchedByPrism matched={matched} canDecide={false} onDecided={vi.fn()} /></MemoryRouter>);
+    expect(screen.queryByRole("button", { name: "Accept all" })).toBeNull();
+  });
+
+  it("accepts one spelling", async () => {
+    mocked.acceptMatched.mockResolvedValue({ aliases: 1, parts: 0 });
+    render(<MemoryRouter><MatchedByPrism matched={matched} canDecide onDecided={vi.fn().mockResolvedValue(undefined)} /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: /Matched by Prism/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+    await waitFor(() => expect(mocked.acceptMatched).toHaveBeenCalledWith({ aliasKeys: ["acme co"], partIds: [] }));
   });
 
   it("offers no undo to those who may not decide", () => {

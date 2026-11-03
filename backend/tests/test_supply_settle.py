@@ -158,6 +158,17 @@ class SettleTests(unittest.TestCase):
             self.settle.choose(conn, part.id, question["options"][0]["key"], ACTOR)
         self.assertEqual((self.fresh(part).manufacturer_name, self.states()["S0-0"]), ("Zeta Works", "exact"))
 
+    def test_accepting_what_prism_matched_takes_it_off_the_list_and_keeps_it(self) -> None:
+        from app.services.supply import review
+
+        part = self.part("", "ZZ-9")
+        self.search(part, 0, ("ZZ-9", "Zeta Works"))
+        with self.store.connection() as conn:
+            self.assertEqual([item["part_id"] for item in review.matched_by_prism(conn)["parts"]], [part.id])
+            self.assertEqual(self.settle.accept_matched(conn, [], [part.id], ACTOR), {"aliases": 0, "parts": 1})
+            self.assertEqual(review.matched_by_prism(conn)["parts"], [])
+        self.assertEqual(self.fresh(part).manufacturer_name, "Zeta Works")
+
     def test_a_packaging_suffix_of_the_same_maker_is_the_same_part_and_added_by_itself(self) -> None:
         with self.store.connection() as conn:
             self.parts.ensure_manufacturer(conn, "Texas Instruments", ACTOR)

@@ -3,6 +3,11 @@
 //
 // The models typed supply routes declare. Untyped routes still use types/supply.ts.
 
+export interface AcceptMatchedRequest {
+  alias_keys?: string[];
+  part_ids?: string[];
+}
+
 export interface AccountRoom {
   daily: number | null;
   weekly: number | null;
@@ -1149,6 +1154,11 @@ export interface MarketSignal {
   text: string;
 }
 
+export interface MatchedAccepted {
+  aliases: number;
+  parts: number;
+}
+
 export interface MoneyLine {
   cost: string;
   key: string;
@@ -2170,6 +2180,8 @@ export interface RoomHeadline {
 export interface RowDistributor {
   connector_id: string;
   currency: string;
+  /** Only marketplace or assembly stock: shown apart, not in the part's stock. */
+  marketplace?: boolean;
   name: string;
   price: string | null;
   provider: string;
@@ -3205,6 +3217,8 @@ export interface SupplyReviewListing {
   match_state: "manufacturer_unresolved" | "near";
   packaging: string;
   packaging_inferred: boolean;
+  /** The distributor's page for the listing, or empty when none is known. */
+  page_url: string;
   /** The part this listing is a candidate for. */
   part: ListingPart | null;
   provider: string;

@@ -1,6 +1,29 @@
 {
   "components": {
     "schemas": {
+      "AcceptMatchedRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "alias_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Alias Keys",
+            "type": "array"
+          },
+          "part_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Part Ids",
+            "type": "array"
+          }
+        },
+        "title": "AcceptMatchedRequest",
+        "type": "object"
+      },
       "AcceptProjectImportProposalRequest": {
         "properties": {
           "asset_links": {
@@ -19570,6 +19593,25 @@
         "title": "MarketSignal",
         "type": "object"
       },
+      "MatchedAccepted": {
+        "additionalProperties": true,
+        "properties": {
+          "aliases": {
+            "title": "Aliases",
+            "type": "integer"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "aliases",
+          "parts"
+        ],
+        "title": "MatchedAccepted",
+        "type": "object"
+      },
       "MateOut": {
         "additionalProperties": true,
         "properties": {
@@ -30446,6 +30488,12 @@
             "title": "Currency",
             "type": "string"
           },
+          "marketplace": {
+            "default": false,
+            "description": "Only marketplace or assembly stock: shown apart, not in the part's stock.",
+            "title": "Marketplace",
+            "type": "boolean"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -37167,6 +37215,11 @@
             "title": "Packaging Inferred",
             "type": "boolean"
           },
+          "page_url": {
+            "description": "The distributor's page for the listing, or empty when none is known.",
+            "title": "Page Url",
+            "type": "string"
+          },
           "part": {
             "anyOf": [
               {
@@ -37214,6 +37267,7 @@
           "sku",
           "raw_mpn",
           "raw_manufacturer",
+          "page_url",
           "match_state",
           "match_reason",
           "packaging",
@@ -65568,6 +65622,48 @@
           }
         },
         "summary": "Reject Listing",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/review/matched/accept": {
+      "post": {
+        "description": "Say the spellings Prism learned and the makers it settled are right. They leave the list and stay in force.",
+        "operationId": "accept_matched",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptMatchedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchedAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Matched",
         "tags": [
           "supply"
         ]
