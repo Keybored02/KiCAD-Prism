@@ -45,6 +45,13 @@ class PinRequest(BaseModel):
     add_number: bool = False
 
 
+class AcceptMatchedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    alias_keys: list[str] = Field(default_factory=list, max_length=1000)
+    part_ids: list[str] = Field(default_factory=list, max_length=1000)
+
+
 class RejectManyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -78,6 +85,7 @@ class SupplyReviewListing(SupplyModel):
     sku: str
     raw_mpn: str
     raw_manufacturer: str
+    page_url: str = Field(description="The distributor's page for the listing, or empty when none is known.")
     match_state: Literal["manufacturer_unresolved", "near"]
     match_reason: str
     packaging: str
@@ -221,6 +229,11 @@ class SettleUndone(SupplyModel):
 
 class AliasUndone(SupplyModel):
     listings: int
+
+
+class MatchedAccepted(SupplyModel):
+    aliases: int
+    parts: int
 
 
 class AliasConfirmed(SupplyModel):

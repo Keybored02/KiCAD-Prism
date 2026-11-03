@@ -320,6 +320,26 @@ def undo_alias(conn, key: str, actor: str) -> int:
     return moved
 
 
+def accept_matched(conn, alias_keys: list[str], part_ids: list[str], actor: str) -> dict[str, int]:
+    """A person says what Prism matched by itself is right: a learned spelling becomes a person's, a settled maker is marked
+    accepted. Both leave the "Matched by Prism" list."""
+
+    actor = actor_text(actor)
+    aliases = 0
+    if alias_keys:
+        aliases = conn.execute(
+            "UPDATE supply_manufacturer_aliases SET source = 'person', confirmed_by = %s WHERE alias_key = ANY(%s) AND source = 'learned'",
+            (actor, list(alias_keys)),
+        ).rowcount
+        conn.execute("UPDATE supply_part_spellings SET source = 'person' WHERE alias_key = ANY(%s) AND source = 'learned'", (list(alias_keys),))
+    accepted = 0
+    for part_id in dict.fromkeys(part_ids):
+        if conn.execute("SELECT 1 FROM supply_parts WHERE id = %s", (part_id,)).fetchone():
+            write_audit(conn, actor, "part.settle_accept", part_id, {}, subject_kind="part")
+            accepted += 1
+    return {"aliases": aliases, "parts": accepted}
+
+
 def learn_aliases(conn) -> int:
     """A spelling that two or more parts of one maker carry becomes a spelling of that maker for every part.
 
