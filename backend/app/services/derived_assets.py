@@ -572,27 +572,3 @@ def thumbnail_media_type(path: str | Path) -> str:
 
     name = Path(path).name
     return _IMAGE_TYPES.get(Path(name).suffix.lower()) or mimetypes.guess_type(name)[0] or "application/octet-stream"
-
-
-def restore_kicad_local_state(repo) -> list[str]:
-    """Put back tracked ``.kicad_prl`` files that changed in the checkout.
-
-    kicad-cli rewrites a project's ``.kicad_prl`` when it loads a project saved by
-    an older KiCad, and Prism runs it on the checkout's own board. Those runs keep
-    the file now (``kicad_tools.project_files_kept``); this heals checkouts an
-    older Prism left dirty. The file is per-user window and layer state, never
-    design data, and nobody edits a server-managed checkout in KiCad, so a changed
-    one is always ours. Left in place it makes the tree dirty and stops every
-    later fast-forward.
-    """
-
-    try:
-        changed = repo.git.diff("--name-only", "-z", "HEAD").split("\0")
-    except Exception:  # noqa: BLE001 - any failure to list changes leaves the checkout as it is
-        # Without a reliable list of changed files, leave the checkout alone.
-        return []
-    restored = [path for path in changed if path.lower().endswith(".kicad_prl")]
-    if restored:
-        repo.git.checkout("HEAD", "--", *restored)
-        logger.info("Restored %d KiCad local state file(s) in the checkout at %s", len(restored), repo.working_tree_dir)
-    return restored

@@ -169,6 +169,9 @@ def _suggestions(conn, part_id: str) -> list[dict[str, Any]]:
     standing = {item["id"]: item for item in parts_view.summaries_for(conn, [entry["part_id"] for entry in found if entry["part_id"]])}
     for entry in found:
         item = standing.get(entry["part_id"] or "")
+        for source in entry["sources"]:
+            source["url"] = parts_view.page_url(source["provider"], source.pop("sku", ""), None)
+        entry["url"] = next((source["url"] for source in entry["sources"] if source["url"]), "")
         entry["stock"] = item["stock"] if item else None
         entry["status"] = item["status"] if item else None
         entry["tracked"] = bool(item and (item["tracking"] or item["watch"]))

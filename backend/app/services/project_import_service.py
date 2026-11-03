@@ -20,7 +20,7 @@ from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
 from app.services.job_kinds import JobKind, JobSubject, repository_lock, subject_lock
-from app.services.kicad_tools import kicad_cli, project_files_kept
+from app.services.kicad_tools import kicad_cli, project_state_kept
 from app.services.project_import_followups import (
     retry_import_follow_ups,
     schedule_import_follow_ups,
@@ -506,7 +506,7 @@ def generate_thumbnail_for_project(
             pcb_file
         ]
         
-        with project_files_kept(pcb_file):
+        with project_state_kept(pcb_file):
             result = cli.run(cmd, timeout=120)
 
         if result.returncode != 0:
@@ -1354,6 +1354,21 @@ def _fetch_timed_out(error: BaseException) -> bool:
     return "did not complete in" in stderr
 
 
+def _restore_kicad_local_state(repo: Repo) -> None:
+    """Undo kicad-cli's edits to tracked ``.kicad_prl`` files when they are the only local changes.
+
+    Older thumbnail renders let kicad-cli rewrite the checkout's ``.kicad_prl``
+    (layer and visibility state), which left the checkout dirty and stopped
+    every later fast-forward. Nobody edits a server checkout's local project
+    state, so a tree whose only changes are those files is put back. A tree
+    with any other change is left alone.
+    """
+
+    changed = {item.a_path for item in repo.index.diff(None)} | {item.a_path for item in repo.index.diff("HEAD")}
+    if changed and all(path.endswith(".kicad_prl") for path in changed):
+        repo.git.checkout("HEAD", "--", *sorted(changed))
+
+
 def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
     """
     Sync a project with its remote repository.
@@ -1386,7 +1401,6 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
 
         if not fetch_only:
             derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
-            derived_assets.restore_kicad_local_state(repo)
 
         # Fetch all refs for branch viewing and prune deleted branches. A host
         # that went away mid-transfer must not hold the repository lock until
@@ -1409,6 +1423,8 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
             }
 
         synced: dict[str, str] | None = None
+        if not fetch_only and not repo.head.is_detached:
+            _restore_kicad_local_state(repo)
         if fetch_only:
             message = f"Fetched {len(fetch_info)} ref(s)"
         elif repo.head.is_detached:

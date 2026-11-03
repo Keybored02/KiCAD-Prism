@@ -2180,7 +2180,7 @@ class DistributorStock(TypedDict, total=True):
     path: list[StockPoint]
 
 
-class DistributorSuggestion(TypedDict, total=True):
+class DistributorSuggestion(TypedDict, total=False):
     """A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part."""
     asked: bool
     manufacturer: str
@@ -2192,6 +2192,7 @@ class DistributorSuggestion(TypedDict, total=True):
     status: str | None
     stock: int | None
     tracked: bool
+    url: str
 
 
 class DocFileContent(TypedDict, total=True):
@@ -5061,7 +5062,8 @@ class ProjectTrackingPreview(TypedDict, total=True):
     tracked: ProjectTracked
 
 
-class ProjectTrackingState(TypedDict, total=True):
+class ProjectTrackingState(TypedDict, total=False):
+    has_schematic: bool
     has_usage: bool
     tracked: TrackedProject | None
     variants: list[str]
@@ -6187,9 +6189,10 @@ class SuffixBody(TypedDict, total=True):
     kind: str
 
 
-class SuggestionSource(TypedDict, total=True):
+class SuggestionSource(TypedDict, total=False):
     name: str
     provider: str
+    url: str
 
 
 class Supply(TypedDict, total=True):

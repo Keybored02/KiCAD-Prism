@@ -12279,6 +12279,12 @@
           "tracked": {
             "title": "Tracked",
             "type": "boolean"
+          },
+          "url": {
+            "default": "",
+            "description": "The first known distributor page for this suggestion.",
+            "title": "Url",
+            "type": "string"
           }
         },
         "required": [
@@ -27833,6 +27839,11 @@
       "ProjectTrackingState": {
         "additionalProperties": true,
         "properties": {
+          "has_schematic": {
+            "default": true,
+            "title": "Has Schematic",
+            "type": "boolean"
+          },
           "has_usage": {
             "title": "Has Usage",
             "type": "boolean"
@@ -33601,6 +33612,12 @@
           },
           "provider": {
             "title": "Provider",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "description": "The distributor's page for the number it suggested; empty when none is known.",
+            "title": "Url",
             "type": "string"
           }
         },
