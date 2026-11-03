@@ -72,10 +72,16 @@ places the same part by a second route if the normal one fails.
 distributors now. Who may use it and how often is in
 [Supply administration](/KiCAD-Prism/admin/supply/#refresh-from-kicad).
 
+The bar at the top of the panel has **Back**, **Forward** and **Home**. Back
+and Forward step through the screens you visited, and Home returns to the
+search. After KiCad reloads the panel, for example after you sign in, it opens
+where you were.
+
 The open-in-Prism button under **Availability** shows the part's supply page
-inside the panel; closing it returns to the part. KiCad keeps every link inside
-the panel, so **Datasheet** and a distributor's product link copy their address
-instead of opening it: paste it into your browser.
+inside the panel; closing it returns to the part. **Datasheet** and a
+distributor's product link open in your own browser, through the KiCad plugin's
+background agent. KiCad keeps every link inside the panel, so without a running
+agent these links copy their address instead: paste it into your browser.
 
 If your session expires, the panel asks you to sign in again.
 

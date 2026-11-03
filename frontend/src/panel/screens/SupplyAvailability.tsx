@@ -5,6 +5,7 @@ import { compactCount, price, summaryText } from "@/panel/lib/supply-summary";
 import { STATUS_FILL as DOT } from "@/features/supply/supply-format";
 import { vendorColor } from "@/features/supply/vendor-colors";
 import { OutsideLink } from "@/panel/components/OutsideLink";
+import { leavingForPrismPage, openedFromPanel } from "@/panel/lib/panel-history";
 
 /** The status dot a search row shows for a component Prism tracks. */
 export function SupplyDot({ summary }: { summary: PanelSupplySummary }) {
@@ -33,8 +34,8 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
           ))}
         </div>
         {supply.links ? (
-          // Opens in the panel: inside KiCad the web app shows this part alone, and closing it comes back here.
-          <a href={supply.links.supply} aria-label="Open in Prism" title="Open in Prism" className="inline-flex shrink-0 text-muted-foreground hover:text-primary">
+          // Opens in the panel: inside KiCad the web app shows this part alone, and closing it goes back here.
+          <a href={openedFromPanel(supply.links.supply)} onClick={leavingForPrismPage} aria-label="Open in Prism" title="Open in Prism" className="inline-flex shrink-0 text-muted-foreground hover:text-primary">
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         ) : null}

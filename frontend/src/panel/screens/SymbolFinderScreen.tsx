@@ -208,7 +208,7 @@ export function SymbolFinderScreen({
   return (
     <div className="flex flex-col gap-3">
       {/* Search bar */}
-      <div className="sticky top-0 z-10 bg-background/95 pb-2 pt-1 backdrop-blur">
+      <div className="sticky top-9 z-10 bg-background/95 pb-2 pt-1 backdrop-blur">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input

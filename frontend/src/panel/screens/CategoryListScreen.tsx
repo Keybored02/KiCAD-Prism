@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ interface CategoryListScreenProps {
   category: string;
   viewState: CategoryBrowseState;
   onViewStateChange: React.Dispatch<React.SetStateAction<CategoryBrowseState>>;
-  onBack: () => void;
   onSelectComponent: (component: PanelComponent) => void;
   onAuthRequired: () => void;
   appendLog: (msg: string) => void;
@@ -26,7 +25,6 @@ export function CategoryListScreen({
   category,
   viewState,
   onViewStateChange,
-  onBack,
   onSelectComponent,
   onAuthRequired,
   appendLog,
@@ -107,15 +105,6 @@ export function CategoryListScreen({
     <div className="flex flex-col gap-2">
       {/* Header */}
       <div className="flex items-center gap-2 pb-1">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={onBack}
-          className="shrink-0"
-          aria-label="Back to categories"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </Button>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-semibold">{category || "Uncategorized"}</h2>
           {!loading && (

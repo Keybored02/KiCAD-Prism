@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { LogTerminal } from "@/panel/components/LogTerminal";
+import { PanelNavBar } from "@/panel/components/PanelNavBar";
 import {
   installBridge,
   uninstallBridge,
@@ -12,7 +13,9 @@ import {
 } from "@/panel/lib/kicad-bridge";
 import { getCategories, isAuthError, setApiToken } from "@/panel/lib/panel-api";
 import type { PanelComponent } from "@/panel/lib/panel-api";
+import { FINDER, recalledComponent, rememberComponent, type PanelPlace } from "@/panel/lib/panel-history";
 import { appendPanelLog, emptyPanelLog } from "@/panel/lib/panel-log";
+import { usePanelNavigation } from "@/panel/lib/use-panel-navigation";
 import {
   emptyCategoryBrowse,
   emptyFinderView,
@@ -23,21 +26,6 @@ import { PanelLoginScreen } from "@/panel/screens/PanelLoginScreen";
 import { SymbolFinderScreen } from "@/panel/screens/SymbolFinderScreen";
 import { CategoryListScreen } from "@/panel/screens/CategoryListScreen";
 import { PartDetailScreen } from "@/panel/screens/PartDetailScreen";
-
-type DetailReturnTarget =
-  | { kind: "finder" }
-  | { kind: "category"; name: string };
-
-type Screen =
-  | { kind: "login" }
-  | { kind: "finder" }
-  | { kind: "category"; name: string }
-  | {
-      kind: "detail";
-      componentId: string;
-      prefetched: PanelComponent | null;
-      returnTo: DetailReturnTarget;
-    };
 
 /** The component to open once signed in: the one whose part page in Prism was just closed (``?component=``). */
 function componentInAddress(): string | null {
@@ -56,7 +44,6 @@ export function PanelApp() {
   const [componentToOpen] = useState(componentInAddress);
   // Taken by the first successful sign-in check only: a later one (KiCad handing over a token) leaves the screen alone.
   const componentOpened = useRef(false);
-  const [screen, setScreen] = useState<Screen>({ kind: "login" });
   const [finderView, setFinderView] = useState(emptyFinderView);
   const [categoryView, setCategoryView] = useState<CategoryBrowseState>(
     () => emptyCategoryBrowse(""),
@@ -65,6 +52,14 @@ export function PanelApp() {
   const [sessionReady, setSessionReady] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // A category list belongs to one category; arriving at another starts it empty.
+  const showPlace = useCallback((place: PanelPlace) => {
+    if (place.kind !== "category") return;
+    setCategoryView((prev) => (prev.name === place.name ? prev : emptyCategoryBrowse(place.name)));
+  }, []);
+  const nav = usePanelNavigation(showPlace);
+  const { place, enter: enterPanel, showLogin } = nav;
 
   const appendLog = useCallback((msg: string) => {
     const stamp = new Date().toLocaleTimeString();
@@ -82,22 +77,19 @@ export function PanelApp() {
       const opened = componentOpened.current ? null : componentToOpen;
       componentOpened.current = true;
       forgetComponentInAddress();
-      setScreen((current) => {
-        if (opened) return { kind: "detail", componentId: opened, prefetched: null, returnTo: { kind: "finder" } };
-        return current.kind === "login" ? { kind: "finder" } : current;
-      });
+      enterPanel(opened);
     } catch (err) {
       if (signal?.aborted) return;
       if (isAuthError(err)) {
         appendLog("Session not authenticated.");
-        setScreen({ kind: "login" });
+        showLogin();
       } else {
         // API reachable but failed (e.g. network error, empty results). We still enter the app.
         appendLog(`API reachable — entering finder. (${(err as Error).message})`);
-        setScreen({ kind: "finder" });
+        enterPanel(null);
       }
     }
-  }, [appendLog, componentToOpen]);
+  }, [appendLog, componentToOpen, enterPanel, showLogin]);
 
   // ─── Initialize bridge ──────────────────────────────────────────
 
@@ -174,7 +166,7 @@ export function PanelApp() {
         // KiCad will reload the panel after auth completes
       } else if (params.authenticated) {
         appendLog("Already authenticated.");
-        setScreen({ kind: "finder" });
+        enterPanel(null);
       } else {
         appendLog(`Login response: ${JSON.stringify(params)}`);
       }
@@ -185,60 +177,46 @@ export function PanelApp() {
     } finally {
       setLoginLoading(false);
     }
-  }, [appendLog]);
+  }, [appendLog, enterPanel]);
 
   // ─── Navigation helpers ─────────────────────────────────────────
 
-  const goToFinder = useCallback(() => setScreen({ kind: "finder" }), []);
-  const goToLogin = useCallback(() => setScreen({ kind: "login" }), []);
+  const { push } = nav;
+
+  const goToFinder = useCallback(() => {
+    if (place?.kind !== "finder") push(FINDER);
+  }, [place, push]);
 
   const goToCategory = useCallback((name: string, total?: number | null) => {
     setCategoryView((prev) =>
       prev.name === name ? prev : emptyCategoryBrowse(name, total ?? null),
     );
-    setScreen({ kind: "category", name });
-  }, []);
+    push({ kind: "category", name });
+  }, [push]);
 
-  const goToDetailFromFinder = useCallback((comp: PanelComponent) => {
-    setScreen({
-      kind: "detail",
-      componentId: comp.id,
-      prefetched: comp,
-      returnTo: { kind: "finder" },
-    });
-  }, []);
-
-  const goToDetailFromCategory = useCallback(
-    (comp: PanelComponent) => {
-      if (screen.kind !== "category") return;
-      setScreen({
-        kind: "detail",
-        componentId: comp.id,
-        prefetched: comp,
-        returnTo: { kind: "category", name: screen.name },
-      });
-    },
-    [screen]
-  );
-
-  const goBackFromDetail = useCallback(() => {
-    setScreen((current) => {
-      if (current.kind !== "detail") return current;
-      const { returnTo } = current;
-      if (returnTo.kind === "category") {
-        return { kind: "category", name: returnTo.name };
-      }
-      return { kind: "finder" };
-    });
-  }, []);
+  const goToDetail = useCallback((comp: PanelComponent) => {
+    rememberComponent(comp);
+    push({ kind: "detail", componentId: comp.id });
+  }, [push]);
 
   // ─── Render ─────────────────────────────────────────────────────
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[460px] flex-col">
+      {place && (
+        <PanelNavBar
+          canGoBack={nav.canGoBack}
+          canGoForward={nav.canGoForward}
+          atHome={place.kind === "finder"}
+          onBack={nav.back}
+          onForward={nav.forward}
+          onHome={goToFinder}
+        />
+      )}
+
       {/* Main content area */}
       <main className="flex flex-1 flex-col px-3 py-3">
-        {screen.kind === "login" && (
+        {!place && (
           <PanelLoginScreen
             onLogin={handleLogin}
             isLoading={loginLoading}
@@ -247,36 +225,34 @@ export function PanelApp() {
           />
         )}
 
-        {screen.kind === "finder" && (
+        {place?.kind === "finder" && (
           <SymbolFinderScreen
             viewState={finderView}
             onViewStateChange={setFinderView}
             onSelectCategory={goToCategory}
-            onSelectComponent={goToDetailFromFinder}
-            onAuthRequired={goToLogin}
+            onSelectComponent={goToDetail}
+            onAuthRequired={showLogin}
             appendLog={appendLog}
           />
         )}
 
-        {screen.kind === "category" && (
+        {place?.kind === "category" && (
           <CategoryListScreen
-            category={screen.name}
+            category={place.name}
             viewState={categoryView}
             onViewStateChange={setCategoryView}
-            onBack={goToFinder}
-            onSelectComponent={goToDetailFromCategory}
-            onAuthRequired={goToLogin}
+            onSelectComponent={goToDetail}
+            onAuthRequired={showLogin}
             appendLog={appendLog}
           />
         )}
 
-        {screen.kind === "detail" && (
+        {place?.kind === "detail" && (
           <PartDetailScreen
-            key={screen.componentId}
-            componentId={screen.componentId}
-            prefetched={screen.prefetched}
-            onBack={goBackFromDetail}
-            onAuthRequired={goToLogin}
+            key={place.componentId}
+            componentId={place.componentId}
+            prefetched={recalledComponent(place.componentId)}
+            onAuthRequired={showLogin}
             appendLog={appendLog}
           />
         )}

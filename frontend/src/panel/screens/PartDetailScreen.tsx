@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
   ChevronDown,
   ChevronUp,
   CircleAlert,
@@ -52,7 +51,6 @@ interface PartDetailScreenProps {
   componentId: string;
   /** Slim list row used as a labeled preview while full detail loads. */
   prefetched?: PanelComponent | null;
-  onBack: () => void;
   onAuthRequired: () => void;
   appendLog: (msg: string) => void;
 }
@@ -104,7 +102,6 @@ function formatPrice(value: number, currency?: string): string {
 export function PartDetailScreen({
   componentId,
   prefetched,
-  onBack,
   onAuthRequired,
   appendLog,
 }: PartDetailScreenProps) {
@@ -253,9 +250,6 @@ export function PartDetailScreen({
     return (
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon-xs" onClick={onBack} aria-label="Back">
-            <ArrowLeft className="h-3.5 w-3.5" />
-          </Button>
           {preview ? (
             <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
               Details
@@ -322,9 +316,6 @@ export function PartDetailScreen({
     <div className="flex flex-1 flex-col gap-3">
       {/* ── Header Row ─────────────────────────────────────────── */}
       <div className="flex items-start gap-2">
-        <Button variant="ghost" size="icon-xs" onClick={onBack} className="mt-0.5 shrink-0" aria-label="Back" title="Back">
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </Button>
         <span className="mt-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
           Details
         </span>
