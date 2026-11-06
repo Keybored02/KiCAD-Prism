@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any, TypedDict
 
 
+class AcceptMatchedRequest(TypedDict, total=False):
+    alias_keys: list[str]
+    part_ids: list[str]
+
+
 class AcceptProjectImportProposalRequest(TypedDict, total=False):
     asset_links: dict[str, str]
     asset_selections: dict[str, list[str]]
@@ -298,6 +303,7 @@ class AuthConfig(TypedDict, total=False):
     oidc_provider_name: str
     password_auth_enabled: bool
     sim_studio_enabled: bool
+    supply_enabled: bool
     workspace_name: str
 
 
@@ -1014,6 +1020,14 @@ class CheckProgress(TypedDict, total=True):
     reason: str
     state: str
     total: int
+
+
+class CheckResult(TypedDict, total=False):
+    error: str | None
+    library: LibraryView
+    moved: bool
+    queued: bool
+    remoteCommit: str
 
 
 class CheckStarted(TypedDict, total=True):
@@ -2108,6 +2122,7 @@ class DistributorSuggestion(TypedDict, total=True):
     manufacturer: str
     mpn: str
     notes: list[str]
+    page_url: str
     part_id: str | None
     sku: str
     sources: list[SuggestionSource]
@@ -3338,6 +3353,69 @@ class LibraryComponentOf(TypedDict, total=True):
     component_id: str | None
 
 
+class LibraryCreate(TypedDict, total=False):
+    checkIntervalSeconds: int
+    git: str | None
+    name: str
+    path: str | None
+    ref: str
+    subdir: str
+    updatePolicy: str
+    variables: list[str]
+
+
+class LibraryList(TypedDict, total=True):
+    checkIntervals: list[int]
+    libraries: list[LibraryView]
+    pathLibrariesEnabled: bool
+    usage: list[VariableUsage]
+
+
+class LibraryUpdate(TypedDict, total=False):
+    checkIntervalSeconds: int | None
+    ref: str | None
+    subdir: str | None
+    updatePolicy: str | None
+    variables: list[str] | None
+
+
+class LibraryView(TypedDict, total=False):
+    """A library as the console shows it.
+
+``ready`` is whether it serves a version now (the disk decides); ``state`` is
+the last fetch's report. ``servedCommit`` is what is bound, ``remoteCommit``
+what the last check saw the ref at."""
+    checkIntervalSeconds: int
+    createdAt: str | None
+    error: str | None
+    etag: str
+    fetchedAt: str | None
+    fetchedCommit: str
+    git: str
+    kind: str
+    lastCheckError: str | None
+    lastCheckedAt: str | None
+    name: str
+    overriddenVariables: list[str]
+    path: str
+    pinnedCommit: str
+    problem: str | None
+    progress: int | None
+    projectsUsing: int
+    ready: bool
+    ref: str
+    remoteCommit: str
+    rowVersion: int
+    servedCommit: str
+    sizeBytes: int | None
+    state: str
+    subdir: str
+    updatePolicy: str
+    updatedAt: str | None
+    updatedBy: str
+    variables: list[str]
+
+
 class LifecycleInsights(TypedDict, total=True):
     compliance: ComplianceMix
     mix: LifecycleMix
@@ -3568,6 +3646,10 @@ class MarketSignal(TypedDict, total=True):
     scope: str
     signal: str
     text: str
+
+
+class MatchedAccepted(TypedDict, total=True):
+    accepted: int
 
 
 class MateOut(TypedDict, total=True):
@@ -4849,6 +4931,7 @@ class ProjectSupply(TypedDict, total=False):
     cost_curve: list[ProjectCostPoint] | None
     cost_history: list[CostDay] | None
     cost_history_left_out: list[CostDay] | None
+    has_schematic: bool | None
     money: ProjectMoney | None
     notes: list[SupplyBomComment]
     parts: list[ProjectSupplyPart] | None
@@ -4913,7 +4996,8 @@ class ProjectTrackingPreview(TypedDict, total=True):
     tracked: ProjectTracked
 
 
-class ProjectTrackingState(TypedDict, total=True):
+class ProjectTrackingState(TypedDict, total=False):
+    has_schematic: bool
     has_usage: bool
     tracked: TrackedProject | None
     variants: list[str]
@@ -5284,6 +5368,20 @@ class ReliabilityBin(TypedDict, total=True):
     said: float
 
 
+class RemoteCheck(TypedDict, total=False):
+    git: str
+    ref: str
+
+
+class RemoteCheckResult(TypedDict, total=False):
+    branches: list[str]
+    defaultBranch: str | None
+    error: str | None
+    reachable: bool
+    refFound: bool | None
+    tags: list[str]
+
+
 class RenderHighlight(TypedDict, total=False):
     components: list[str]
     nets: list[str]
@@ -5564,10 +5662,11 @@ class RouteLatencyRow(TypedDict, total=True):
     status5xx: int
 
 
-class RowDistributor(TypedDict, total=True):
+class RowDistributor(TypedDict, total=False):
     """A distributor that lists the part: stock above zero is filled."""
     connector_id: str
     currency: str
+    marketplace: bool
     name: str
     price: str | None
     provider: str
@@ -6013,6 +6112,7 @@ class SuffixBody(TypedDict, total=True):
 
 class SuggestionSource(TypedDict, total=True):
     name: str
+    page_url: str
     provider: str
 
 
@@ -6703,6 +6803,7 @@ class SupplyReviewListing(TypedDict, total=True):
     match_state: str
     packaging: str
     packaging_inferred: bool
+    page_url: str
     part: ListingPart | None
     provider: str
     raw_manufacturer: str
@@ -7330,6 +7431,19 @@ class ValidationSummary(TypedDict, total=True):
     warning_count: int
 
 
+class VariableCount(TypedDict, total=True):
+    models: int
+    variable: str
+
+
+class VariableUsage(TypedDict, total=True):
+    bound: bool
+    models: int
+    projects: int
+    sheets: int
+    variable: str
+
+
 class VariantCatalogDiagnostic(TypedDict, total=False):
     """A catalog-builder diagnostic, in today's key order."""
     code: str | None
@@ -7365,6 +7479,14 @@ class VendorReadiness(TypedDict, total=True):
     required_artifacts: list[str]
     title: str
     vendor_id: str
+
+
+class VersionView(TypedDict, total=True):
+    commit: str
+    fetchedAt: str
+    ref: str
+    requestedBy: str
+    serving: bool
 
 
 class ViewerSupportFile(TypedDict, total=True):
@@ -7419,11 +7541,14 @@ class WebGpu3dStatus(TypedDict, total=False):
     generator: GeneratorTag
     job_id: str | None
     message: str | None
+    missingModels: list[VariableCount]
     readiness: StatusReadiness
+    refreshing: bool
     schema: str
     sourceRevisionKey: str
     source_fingerprint: str
     status: str
+    unresolvedVariables: list[VariableCount]
 
 
 class WebhookAccepted(TypedDict, total=True):
@@ -7623,6 +7748,14 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/health/about",
+        )
+
+    def accept_matched(self, *, body: dict[str, Any] | None = None) -> MatchedAccepted:
+        """Accept Matched"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/matched/accept",
+            body=body,
         )
 
     def accept_project_import_proposal(self, proposal_id: str, *, body: dict[str, Any] | None = None) -> ImportProposalAcceptance:
@@ -7939,6 +8072,14 @@ class GeneratedClient:
             path_params={"source_id": source_id},
         )
 
+    def check_library(self, name: str) -> CheckResult:
+        """Check a library's remote now"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/check",
+            path_params={"name": name},
+        )
+
     def check_notices(self, part_id: str) -> SupplyNoticeCheck:
         """Check Notices"""
         return self._request(
@@ -7953,6 +8094,14 @@ class GeneratedClient:
             "GET",
             "/api/v1/projects/{project_id}/release-studio/tags/{tag}",
             path_params={"project_id": project_id, "tag": tag},
+        )
+
+    def check_remote(self, *, body: dict[str, Any] | None = None) -> RemoteCheckResult:
+        """Check that a repository and ref exist"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/check",
+            body=body,
         )
 
     def choose_line(self, project_id: str, *, body: dict[str, Any] | None = None) -> None:
@@ -8197,6 +8346,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def create_library(self, *, body: dict[str, Any] | None = None) -> LibraryView:
+        """Declare a KiCad path library"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries",
+            body=body,
+        )
+
     def create_metadata_batch(self, *, body: dict[str, Any] | None = None) -> MetadataBatch:
         """Stage a metadata batch"""
         return self._request(
@@ -8404,6 +8561,14 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/supply/inventory-sources/{source_id}",
             path_params={"source_id": source_id},
+        )
+
+    def delete_library(self, name: str) -> None:
+        """Remove a KiCad path library"""
+        return self._request(
+            "DELETE",
+            "/api/v1/settings/kicad-libraries/{name}",
+            path_params={"name": name},
         )
 
     def delete_project_endpoint(self, project_id: str) -> ProjectDeleted:
@@ -8657,6 +8822,14 @@ class GeneratedClient:
             query={"field": field},
         )
 
+    def fetch_library(self, name: str) -> LibraryView:
+        """Fetch a KiCad path library again"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/fetch",
+            path_params={"name": name},
+        )
+
     def find_part(self, *, mpn: str, manufacturer: str = '') -> PartLookup:
         """Find Part"""
         return self._request(
@@ -8712,6 +8885,14 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/supply/connectors/{connector_id}/signin",
             path_params={"connector_id": connector_id},
+        )
+
+    def freeze_library(self, name: str) -> LibraryView:
+        """Pin a library at the commit it serves now"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/freeze",
+            path_params={"name": name},
         )
 
     def generate_missing_previews(self) -> CatalogJobQueued:
@@ -9781,6 +9962,14 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
+    def library_versions(self, name: str) -> list[VersionView]:
+        """The versions a library has served"""
+        return self._request(
+            "GET",
+            "/api/v1/settings/kicad-libraries/{name}/versions",
+            path_params={"name": name},
+        )
+
     def link_library_asset(self, component_id: str, asset_type: str, *, body: dict[str, Any] | None = None) -> ComponentMutation:
         """Link a stored library asset to a component"""
         return self._request(
@@ -9980,6 +10169,13 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/supply/inventory-sources",
+        )
+
+    def list_libraries(self) -> LibraryList:
+        """List KiCad path libraries"""
+        return self._request(
+            "GET",
+            "/api/v1/settings/kicad-libraries",
         )
 
     def list_linkable_connectors(self) -> list[dict[str, Any]]:
@@ -10815,6 +11011,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def refresh_library(self, name: str) -> LibraryView:
+        """Read a path library's folder again"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/refresh",
+            path_params={"name": name},
+        )
+
     def refresh_rates(self) -> SupplyFxRatesSaved:
         """Refresh Rates"""
         return self._request(
@@ -11589,6 +11793,14 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
+    def unfreeze_library(self, name: str) -> LibraryView:
+        """Let a library follow its ref again"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/unfreeze",
+            path_params={"name": name},
+        )
+
     def unlink_comment_tracker(self, project_id: str, comment_id: str) -> dict[str, Any]:
         """Unlink Comment Tracker"""
         return self._request(
@@ -11667,6 +11879,15 @@ class GeneratedClient:
             body=body,
         )
 
+    def update_library(self, name: str, *, body: dict[str, Any] | None = None) -> LibraryView:
+        """Change a KiCad path library"""
+        return self._request(
+            "PATCH",
+            "/api/v1/settings/kicad-libraries/{name}",
+            path_params={"name": name},
+            body=body,
+        )
+
     def update_metadata_field(self, field_id: str, *, body: dict[str, Any] | None = None) -> MetadataField:
         """Update a metadata field"""
         return self._request(
@@ -11674,6 +11895,14 @@ class GeneratedClient:
             "/api/v1/catalog/metadata/fields/{field_id}",
             path_params={"field_id": field_id},
             body=body,
+        )
+
+    def update_now(self, name: str) -> LibraryView:
+        """Fetch a library's ref as it is now"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/update",
+            path_params={"name": name},
         )
 
     def update_project_config(self, project_id: str, *, body: dict[str, Any] | None = None) -> ProjectConfigSaved:
@@ -11797,6 +12026,14 @@ class GeneratedClient:
             "/api/v1/supply/review/choices/{part_id}/numbers",
             path_params={"part_id": part_id},
             body=body,
+        )
+
+    def use_version(self, name: str, commit: str) -> LibraryView:
+        """Pin a library at an earlier version"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/kicad-libraries/{name}/versions/{commit}/use",
+            path_params={"name": name, "commit": commit},
         )
 
     def validate_catalog(self) -> CatalogJobQueued:

@@ -13,6 +13,7 @@ from app.api.mcp_clients_settings import router as mcp_clients_settings_router
 from app.api.mcp_oauth import router as mcp_oauth_router
 from app.api.mcp_settings import admin_router as mcp_audit_router
 from app.api.mcp_settings import router as mcp_settings_router
+from app.api.kicad_libraries_settings import router as kicad_libraries_settings_router
 from app.api.webhook_settings import router as webhook_settings_router
 from app.api.ops import router as ops_router
 from app.api.ops_jobs import router as ops_jobs_router
@@ -107,7 +108,7 @@ from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.core.config import settings
 from app.core import runtime_logging
-from app.services import checkout_line_endings
+from app.services import checkout_line_endings, kicad_libraries, kicad_library_fetch
 from app.services.git_credentials import (
     configuration_warnings as git_credential_warnings,
     git_credentials,
@@ -257,6 +258,7 @@ def announce_configuration_warnings() -> None:
 
 verify_auth_configuration_or_exit()
 verify_git_credentials_or_exit("KiCAD Prism")
+kicad_libraries.verify_mount_root_or_exit("KiCAD Prism")
 
 
 @asynccontextmanager
@@ -270,6 +272,13 @@ async def lifespan(app: FastAPI):
         # Git for Windows' autocrlf makes a checkout differ from its commit's bytes.
         checkout_line_endings.convert_projects_in_background(Path(settings.KICAD_PROJECTS_ROOT))
     bring_every_schema_to_head()
+    try:
+        # After the schema: the libraries are declared in the database. Startup never waits for a fetch.
+        queued = await asyncio.to_thread(kicad_library_fetch.queue_missing)
+        if queued:
+            logger.info("Queued fetches for the KiCad libraries: %s", ", ".join(queued))
+    except Exception as exc:
+        logger.warning("Could not queue the KiCad library fetches: %s", exc)
     runtime_logging.start_poller()
     try:
         await asyncio.to_thread(idempotency_store.sweep_expired)
@@ -391,6 +400,7 @@ app.include_router(personal_tokens_router)
 app.include_router(mcp_clients_settings_router)
 app.include_router(mcp_settings_router)
 app.include_router(webhook_settings_router)
+app.include_router(kicad_libraries_settings_router)
 app.include_router(ops_router)
 app.include_router(ops_jobs_router)
 app.include_router(ops_runtime_router)
@@ -440,36 +450,38 @@ app.include_router(service_clients_router)
 app.include_router(remote_provider_router, tags=["remote-provider"])
 app.include_router(provider_oauth_router, tags=["provider-oauth"])
 app.include_router(tracker_connectors_router)
-app.include_router(supply_connectors_router)
-app.include_router(supply_review_router)
-app.include_router(supply_parts_router)
 app.include_router(search_parts_router)
-app.include_router(supply_ending_router)
-app.include_router(supply_work_items_router)
-app.include_router(supply_forecast_router)
-# The KiCad database shows "Not for new designs" in Status for components the library marked.
-dbl_export.set_status_marks(ending_parts.status_marks)
-app.include_router(supply_alerts_router)
-app.include_router(supply_bom_router)
-app.include_router(supply_fill_router)
-app.include_router(supply_component_parts_router)
-app.include_router(supply_inventory_router)
-app.include_router(supply_push_router)
-app.include_router(supply_health_router)
-app.include_router(supply_fx_router)
-app.include_router(supply_datasheets_router)
-app.include_router(supply_compliance_router)
-app.include_router(supply_market_router)
-app.include_router(supply_oauth_router)
-app.include_router(supply_pcn_router)
-app.include_router(supply_assessment_router)
-app.include_router(supply_release_router)
-app.include_router(supply_bom_comments_router)
-app.include_router(supply_tracking_router)
-app.include_router(supply_budget_router)
-app.include_router(supply_packaging_router)
-app.include_router(supply_checks_router)
-app.include_router(supply_settings_router)
+# Supply's routes exist only while it is on (PRISM_SUPPLY_ENABLED); off, they 404 like any unknown path.
+if settings.PRISM_SUPPLY_ENABLED:
+    app.include_router(supply_connectors_router)
+    app.include_router(supply_review_router)
+    app.include_router(supply_parts_router)
+    app.include_router(supply_ending_router)
+    app.include_router(supply_work_items_router)
+    app.include_router(supply_forecast_router)
+    # The KiCad database shows "Not for new designs" in Status for components the library marked.
+    dbl_export.set_status_marks(ending_parts.status_marks)
+    app.include_router(supply_alerts_router)
+    app.include_router(supply_bom_router)
+    app.include_router(supply_fill_router)
+    app.include_router(supply_component_parts_router)
+    app.include_router(supply_inventory_router)
+    app.include_router(supply_push_router)
+    app.include_router(supply_health_router)
+    app.include_router(supply_fx_router)
+    app.include_router(supply_datasheets_router)
+    app.include_router(supply_compliance_router)
+    app.include_router(supply_market_router)
+    app.include_router(supply_oauth_router)
+    app.include_router(supply_pcn_router)
+    app.include_router(supply_assessment_router)
+    app.include_router(supply_release_router)
+    app.include_router(supply_bom_comments_router)
+    app.include_router(supply_tracking_router)
+    app.include_router(supply_budget_router)
+    app.include_router(supply_packaging_router)
+    app.include_router(supply_checks_router)
+    app.include_router(supply_settings_router)
 app.include_router(tracker_identity_router)
 app.include_router(tracker_identity_admin_router)
 app.include_router(project_trackers_router)

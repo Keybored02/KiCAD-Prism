@@ -104,6 +104,9 @@ class PrismWorker:
         self._next_bundle_backfill = 0.0
         self._next_bundle_retention = 0.0
         self._bundle_upkeep: threading.Thread | None = None
+        self._next_library_scan = 0.0
+        self._next_library_sweep = 0.0
+        self._library_upkeep: threading.Thread | None = None
         self._bundle_backfill_state = None
         self._next_supply_scan = 0.0
         self._next_webhook_delivery = 0.0
@@ -578,6 +581,43 @@ class PrismWorker:
         except Exception:
             logger.exception("Could not queue project fetches")
 
+    def schedule_kicad_libraries(self) -> None:
+        """Check due KiCad libraries' remotes every minute and sweep superseded versions hourly.
+
+        One daemon thread, so ``git ls-remote`` never holds up job supervision.
+        """
+
+        if self.worker_pool != "prism":
+            return
+        now = time.monotonic()
+        scan = now >= self._next_library_scan
+        sweep = now >= self._next_library_sweep
+        if not (scan or sweep) or (self._library_upkeep is not None and self._library_upkeep.is_alive()):
+            return
+        if scan:
+            self._next_library_scan = now + 60
+        if sweep:
+            self._next_library_sweep = now + 3600
+        self._library_upkeep = threading.Thread(
+            target=self._kicad_library_upkeep, args=(scan, sweep), name="kicad-library-upkeep", daemon=True
+        )
+        self._library_upkeep.start()
+
+    def _kicad_library_upkeep(self, scan: bool, sweep: bool) -> None:
+        from app.services import kicad_library_fetch, kicad_library_updates
+
+        if scan:
+            try:
+                kicad_library_updates.check_due()
+            except Exception:
+                logger.exception("Could not check the KiCad libraries")
+        if sweep:
+            try:
+                # One job per library, under the library's lock, so a sweep never prunes a store a fetch is using.
+                kicad_library_fetch.request_sweeps()
+            except Exception:
+                logger.exception("Could not queue the KiCad library sweeps")
+
     def schedule_design_bundles(self) -> None:
         """The paced backfill of branch-head bundles and hourly bundle retention (ADR §5, §8).
 
@@ -713,7 +753,7 @@ class PrismWorker:
         self._next_tracker_scan = time.monotonic() + 5
 
     def schedule_supply_jobs(self) -> None:
-        if self.worker_pool != "prism" or time.monotonic() < self._next_supply_scan:
+        if self.worker_pool != "prism" or not settings.PRISM_SUPPLY_ENABLED or time.monotonic() < self._next_supply_scan:
             return
         from app.services.supply.jobs import SCAN_SECONDS, schedule_due_supply_jobs
 
@@ -771,6 +811,10 @@ class PrismWorker:
                 self.schedule_catalog_maintenance()
             except Exception:
                 self._log_database_error("schedule catalog maintenance")
+            try:
+                self.schedule_kicad_libraries()
+            except Exception:
+                self._log_database_error("schedule KiCad library checks")
             try:
                 self.schedule_project_fetches()
             except Exception:
@@ -870,6 +914,9 @@ def main() -> None:
     from app.services.git_credentials import verify_git_credentials_or_exit
 
     verify_git_credentials_or_exit(f"The {args.pool} worker")
+    from app.services.kicad_libraries import verify_mount_root_or_exit
+
+    verify_mount_root_or_exit(f"The {args.pool} worker")
     from app.services.ops import stats as ops_stats
 
     ops_stats.start(f"worker:{args.pool}")
