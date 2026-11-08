@@ -3,6 +3,11 @@
 //
 // The models typed supply routes declare. Untyped routes still use types/supply.ts.
 
+export interface AcceptMatchedRequest {
+  alias_keys?: string[];
+  part_ids?: string[];
+}
+
 export interface AccountRoom {
   daily: number | null;
   weekly: number | null;
@@ -409,6 +414,8 @@ export interface ConfirmAliasRequest {
 export interface ConnectorHealth {
   budget: number | null;
   calls_today: number;
+  catalogue_error: string;
+  catalogue_failed_at: string | null;
   connector_id: string;
   enabled: boolean;
   failing: number;
@@ -603,6 +610,8 @@ export interface DistributorSuggestion {
   mpn: string;
   /** Their words: the package, or how close DigiKey says it is. */
   notes: string[];
+  /** The first distributor page among its sources, empty when none has one. */
+  page_url: string;
   /** The part in Prism, when it is one. */
   part_id: string | null;
   sku: string;
@@ -1147,6 +1156,10 @@ export interface MarketSignal {
   scope: string;
   signal: "draining" | "lead_times";
   text: string;
+}
+
+export interface MatchedAccepted {
+  accepted: number;
 }
 
 export interface MoneyLine {
@@ -1746,7 +1759,7 @@ export interface ProjectPartsPage {
   unmatched: ProjectSupplyPart[];
 }
 
-/** How a project stands in supply, from its stored BOM. Without a BOM read, only ``available``, the variants, releases and notes. */
+/** How a project stands in supply, from its stored BOM. Without parts, only ``available``, ``has_usage``, the variants, releases and notes. */
 export interface ProjectSupply {
   /** The spares, in percent; null is by kind of part. */
   attrition_percent?: number | null;
@@ -1759,6 +1772,10 @@ export interface ProjectSupply {
   cost_history?: CostDay[] | null;
   /** The days left out because one price was read wrong. */
   cost_history_left_out?: CostDay[] | null;
+  /** Without a BOM read: whether the project has a schematic to read it from. */
+  has_schematic?: boolean | null;
+  /** Whether the project's BOM has been read, even when it has no fitted parts. */
+  has_usage: boolean;
   money?: ProjectMoney | null;
   notes: SupplyBomComment[];
   parts?: ProjectSupplyPart[] | null;
@@ -1835,6 +1852,7 @@ export interface ProjectTrackingPreview {
 }
 
 export interface ProjectTrackingState {
+  has_schematic?: boolean;
   has_usage: boolean;
   tracked: TrackedProject | null;
   variants: string[];
@@ -2168,6 +2186,8 @@ export interface RoomHeadline {
 export interface RowDistributor {
   connector_id: string;
   currency: string;
+  /** Only marketplace or assembly offers: shown, never counted in the part's stock. */
+  marketplace?: boolean;
   name: string;
   price: string | null;
   provider: string;
@@ -2413,6 +2433,8 @@ export interface SuffixBody {
 
 export interface SuggestionSource {
   name: string;
+  /** The suggestion's page at this distributor, empty when its number does not give one. */
+  page_url: string;
   provider: string;
 }
 
@@ -2635,6 +2657,10 @@ export interface SupplyConnector {
   /** Offers come from the provider's published catalogue (jlcparts) instead of an uploaded file. */
   catalogue: boolean;
   catalogue_available: boolean;
+  /** Why the published catalogue last could not be read. */
+  catalogue_error: string;
+  /** When the published catalogue last could not be read; the import waits a full interval from it. */
+  catalogue_failed_at: string | null;
   /** The connector rests, making no calls, until this time (after a refusal, a rate limit or errors in a row). */
   cooldown_until: string | null;
   created_at: string | null;
@@ -3217,6 +3243,8 @@ export interface SupplyReviewListing {
   match_state: "manufacturer_unresolved" | "near";
   packaging: string;
   packaging_inferred: boolean;
+  /** The distributor's page for it, even before it has been read. */
+  page_url: string;
   /** The part this listing is a candidate for. */
   part: ListingPart | null;
   provider: string;

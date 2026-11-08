@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any, TypedDict
 
 
+class AcceptMatchedRequest(TypedDict, total=False):
+    alias_keys: list[str]
+    part_ids: list[str]
+
+
 class AcceptProjectImportProposalRequest(TypedDict, total=False):
     asset_links: dict[str, str]
     asset_selections: dict[str, list[str]]
@@ -293,11 +298,13 @@ class AuditVerification(TypedDict, total=False):
 class AuthConfig(TypedDict, total=False):
     """Authentication configuration exposed to frontend."""
     auth_enabled: bool
+    comment_live_enabled: bool
     dev_mode: bool
     oidc_enabled: bool
     oidc_provider_name: str
     password_auth_enabled: bool
     sim_studio_enabled: bool
+    supply_enabled: bool
     workspace_name: str
 
 
@@ -1588,6 +1595,8 @@ class ConnectorCredentials(TypedDict, total=False):
 class ConnectorHealth(TypedDict, total=True):
     budget: int | None
     calls_today: int
+    catalogue_error: str
+    catalogue_failed_at: str | None
     connector_id: str
     enabled: bool
     failing: int
@@ -2108,6 +2117,7 @@ class DistributorSuggestion(TypedDict, total=True):
     manufacturer: str
     mpn: str
     notes: list[str]
+    page_url: str
     part_id: str | None
     sku: str
     sources: list[SuggestionSource]
@@ -3570,6 +3580,10 @@ class MarketSignal(TypedDict, total=True):
     text: str
 
 
+class MatchedAccepted(TypedDict, total=True):
+    accepted: int
+
+
 class MateOut(TypedDict, total=True):
     componentId: str
     createdAt: str
@@ -4842,13 +4856,15 @@ class ProjectSearchResults(TypedDict, total=True):
 
 
 class ProjectSupply(TypedDict, total=False):
-    """How a project stands in supply, from its stored BOM. Without a BOM read, only ``available``, the variants, releases and notes."""
+    """How a project stands in supply, from its stored BOM. Without parts, only ``available``, ``has_usage``, the variants, releases and notes."""
     attrition_percent: float | None
     available: bool
     build_quantity: int | None
     cost_curve: list[ProjectCostPoint] | None
     cost_history: list[CostDay] | None
     cost_history_left_out: list[CostDay] | None
+    has_schematic: bool | None
+    has_usage: bool
     money: ProjectMoney | None
     notes: list[SupplyBomComment]
     parts: list[ProjectSupplyPart] | None
@@ -4913,7 +4929,8 @@ class ProjectTrackingPreview(TypedDict, total=True):
     tracked: ProjectTracked
 
 
-class ProjectTrackingState(TypedDict, total=True):
+class ProjectTrackingState(TypedDict, total=False):
+    has_schematic: bool
     has_usage: bool
     tracked: TrackedProject | None
     variants: list[str]
@@ -5564,10 +5581,11 @@ class RouteLatencyRow(TypedDict, total=True):
     status5xx: int
 
 
-class RowDistributor(TypedDict, total=True):
+class RowDistributor(TypedDict, total=False):
     """A distributor that lists the part: stock above zero is filled."""
     connector_id: str
     currency: str
+    marketplace: bool
     name: str
     price: str | None
     provider: str
@@ -6013,6 +6031,7 @@ class SuffixBody(TypedDict, total=True):
 
 class SuggestionSource(TypedDict, total=True):
     name: str
+    page_url: str
     provider: str
 
 
@@ -6211,6 +6230,8 @@ class SupplyConnector(TypedDict, total=False):
     block_streak: int
     catalogue: bool
     catalogue_available: bool
+    catalogue_error: str
+    catalogue_failed_at: str | None
     cooldown_until: str | None
     created_at: str | None
     created_by: str
@@ -6703,6 +6724,7 @@ class SupplyReviewListing(TypedDict, total=True):
     match_state: str
     packaging: str
     packaging_inferred: bool
+    page_url: str
     part: ListingPart | None
     provider: str
     raw_manufacturer: str
@@ -7623,6 +7645,14 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/health/about",
+        )
+
+    def accept_matched(self, *, body: dict[str, Any] | None = None) -> MatchedAccepted:
+        """Accept Matched"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/matched/accept",
+            body=body,
         )
 
     def accept_project_import_proposal(self, proposal_id: str, *, body: dict[str, Any] | None = None) -> ImportProposalAcceptance:

@@ -41,6 +41,8 @@ export function connectorFixture(overrides: Partial<SupplyConnector> = {}): Supp
     last_ok_at: null,
     last_error_code: "",
     last_error_at: null,
+    catalogue_failed_at: null,
+    catalogue_error: "",
     created_by: "admin@example.com",
     created_at: "2026-03-01T10:00:00Z",
     updated_at: "2026-03-01T10:00:00Z",
@@ -289,7 +291,7 @@ export function toApproveFixture(overrides: Partial<SupplyToApprove> = {}): Supp
 
 export function reviewListingFixture(overrides: Partial<SupplyReviewListing> = {}): SupplyReviewListing {
   return {
-    id: "l1", connector_id: "c1", connector_name: "Mouser", provider: "mouser", sku: "SKU-1", raw_mpn: "MPN-1", raw_manufacturer: "Acme",
+    id: "l1", connector_id: "c1", connector_name: "Mouser", provider: "mouser", sku: "SKU-1", page_url: "https://www.mouser.com/ProductDetail/SKU-1", raw_mpn: "MPN-1", raw_manufacturer: "Acme",
     match_state: "manufacturer_unresolved", match_reason: "", packaging: "cut_tape", reel_size: null, packaging_inferred: false,
     first_seen_at: "2026-01-01T00:00:00Z", part: null, ...overrides,
   };

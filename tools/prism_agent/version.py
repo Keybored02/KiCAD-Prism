@@ -27,7 +27,7 @@ from __future__ import annotations
 # The package's version, for the plugin and the agent alike. One constant in one
 # (vendored) file, so the two halves of a package cannot claim different versions.
 # package_plugin.py reads it rather than taking one as an argument.
-VERSION = "0.5.17"
+VERSION = "0.5.18"
 
 # The oldest agent the plugin can work with: the last release that actually changed
 # what the plugin needs, not the current one. Pinning it to VERSION forces a restart
@@ -134,6 +134,21 @@ def health_verdict(health: dict | None) -> tuple[str, str]:
     if agent_too_old(health.get("version", "")):
         return "agent_outdated", ""
     return server_verdict(health.get("server_plugin"))
+
+
+def backend_state(health: dict | None) -> str:
+    """The backend's state from one agent /health payload.
+
+    Returns ``"unknown"`` (the agent hasn't finished its first check), ``"up"``,
+    ``"down"`` (nothing answered) or ``"refused"`` (it answered 401/403, usually a
+    revoked token). An agent from before the field existed only has the boolean, so
+    that is the fallback.
+    """
+    health = health if isinstance(health, dict) else {}
+    state = health.get("backend")
+    if state in ("unknown", "up", "down", "refused"):
+        return state
+    return "up" if health.get("backend_reachable") else "down"
 
 
 def usable(verdict: str) -> bool:
