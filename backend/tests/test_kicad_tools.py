@@ -204,6 +204,18 @@ class LocalRunTests(unittest.TestCase):
         self.assertEqual(tool.version(), "10.0.4")
         self.assertEqual(counter.read_text(), "x")
 
+    def test_a_failed_version_probe_is_not_cached(self) -> None:
+        marker = self.root / "ready"
+        tool = self._tool(
+            f"if not os.path.exists({str(marker)!r}): sys.exit(1)\n"
+            "print('10.0.4')"
+        )
+        kicad_tools._versions.pop(tool.executable(), None)
+
+        self.assertEqual(tool.version(), "unknown")
+        marker.write_text("", encoding="utf-8")
+        self.assertEqual(tool.version(), "10.0.4")
+
 
 class CallersShareTheLocatorTests(unittest.TestCase):
     """KICAD_CLI_PATH reaches jobsets and catalog previews (it used not to)."""
@@ -256,6 +268,50 @@ class CallersShareTheLocatorTests(unittest.TestCase):
             with self.assertRaises(kicad_board_stats_service.BoardStatsUnavailable):
                 kicad_board_stats_service.export_board_stats(str(board))
         self.assertEqual(self.argv[0][0], "/opt/pinned/kicad-cli")
+
+
+
+class ProjectStateKept(unittest.TestCase):
+    """kicad-cli rewrites a project's local settings when it loads a board in place (#1122)."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.folder = Path(temporary.name)
+        self.board = self.folder / "board.kicad_pcb"
+        self.board.write_text("(kicad_pcb)", encoding="utf-8")
+        self.prl = self.folder / "board.kicad_prl"
+        self.prl.write_text('{"layers": "fff"}', encoding="utf-8")
+        os.utime(self.prl, ns=(1_000_000_000, 1_000_000_000))
+
+    def test_a_rewritten_kicad_prl_is_put_back_with_its_time(self) -> None:
+        with kicad_tools.project_state_kept(self.board):
+            self.prl.write_text('{"layers": "000"}', encoding="utf-8")
+
+        self.assertEqual(self.prl.read_text(encoding="utf-8"), '{"layers": "fff"}')
+        self.assertEqual(self.prl.stat().st_mtime_ns, 1_000_000_000)
+
+    def test_a_project_file_the_run_creates_is_removed(self) -> None:
+        with kicad_tools.project_state_kept(self.board):
+            (self.folder / "board.kicad_pro").write_text("{}", encoding="utf-8")
+
+        self.assertFalse((self.folder / "board.kicad_pro").exists())
+
+    def test_an_untouched_file_and_other_files_are_left_alone(self) -> None:
+        output = self.folder / "render.png"
+        with kicad_tools.project_state_kept(self.board):
+            output.write_bytes(b"png")
+
+        self.assertEqual(self.prl.stat().st_mtime_ns, 1_000_000_000)
+        self.assertTrue(output.exists())
+
+    def test_the_files_are_put_back_when_the_run_raises(self) -> None:
+        with self.assertRaises(RuntimeError):
+            with kicad_tools.project_state_kept(self.board):
+                self.prl.write_text('{"layers": "000"}', encoding="utf-8")
+                raise RuntimeError("kicad-cli failed")
+
+        self.assertEqual(self.prl.read_text(encoding="utf-8"), '{"layers": "fff"}')
 
 
 if __name__ == "__main__":

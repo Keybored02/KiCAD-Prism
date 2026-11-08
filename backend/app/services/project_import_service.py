@@ -21,7 +21,7 @@ from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
 from app.services.job_kinds import JobKind, JobSubject, repository_lock, subject_lock
-from app.services.kicad_tools import kicad_cli
+from app.services.kicad_tools import kicad_cli, project_state_kept
 from app.services.project_import_followups import (
     retry_import_follow_ups,
     schedule_import_follow_ups,
@@ -506,7 +506,8 @@ def generate_thumbnail_for_project(
             pcb_file
         ]
         
-        result = cli.run(cmd, timeout=120)
+        with project_state_kept(pcb_file):
+            result = cli.run(cmd, timeout=120)
 
         if result.returncode != 0:
             if logs_list is not None:
@@ -820,8 +821,11 @@ def _register_planned_projects(
     checkout_root = target_path.resolve()
     imported_ids: list[str] = []
     total = len(plan.selected)
+    # No cancellation check inside this loop: rows registered before a cancel
+    # would be left pointing at a checkout the caller then removes. A cancel
+    # is honored before registration starts; one that arrives during it is
+    # settled by the runtime once every selected project has a row.
     for index, project in enumerate(plan.selected):
-        context.check_cancelled()
         if plan.import_type == "type1":
             project_root = target_path
             description = f"Project {plan.repo_name}"
@@ -915,6 +919,9 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
     )
     target_path = Path(plan.target_path)
     base_path = target_path.parent
+    # An existing repository row already points at this checkout, so it must
+    # survive even when this job cloned it (a missing checkout is re-created).
+    registered = existing_repo is not None
 
     try:
         adopted_checkout = False
@@ -985,7 +992,9 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 clone_path_abs=str(target_path),
                 import_type="single" if import_type == "type1" else "multi",
             )
+            registered = True
         imported_ids = _register_planned_projects(plan, target_path, repo_id, context)
+        registered = True
         # Render boards in their own jobs. The projects are registered and
         # browsable now; thumbnails fill in as each render finishes, rather than
         # holding the import open for two minutes per board.
@@ -1016,7 +1025,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             },
         )
     except Exception:
-        if cloned_in_job:
+        if cloned_in_job and not registered:
             shutil.rmtree(target_path, ignore_errors=True)
         raise
 
@@ -1300,6 +1309,21 @@ def _fetch_timed_out(error: BaseException) -> bool:
     return "did not complete in" in stderr
 
 
+def _restore_kicad_local_state(repo: Repo) -> None:
+    """Undo kicad-cli's edits to tracked ``.kicad_prl`` files when they are the only local changes.
+
+    Older thumbnail renders let kicad-cli rewrite the checkout's ``.kicad_prl``
+    (layer and visibility state), which left the checkout dirty and stopped
+    every later fast-forward. Nobody edits a server checkout's local project
+    state, so a tree whose only changes are those files is put back. A tree
+    with any other change is left alone.
+    """
+
+    changed = {item.a_path for item in repo.index.diff(None)} | {item.a_path for item in repo.index.diff("HEAD")}
+    if changed and all(path.endswith(".kicad_prl") for path in changed):
+        repo.git.checkout("HEAD", "--", *sorted(changed))
+
+
 def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
     """
     Sync a project with its remote repository.
@@ -1353,6 +1377,8 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
             }
 
         synced: dict[str, str] | None = None
+        if not fetch_only and not repo.head.is_detached:
+            _restore_kicad_local_state(repo)
         if fetch_only:
             message = f"Fetched {len(fetch_info)} ref(s)"
         elif repo.head.is_detached:

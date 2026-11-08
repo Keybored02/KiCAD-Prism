@@ -49,7 +49,7 @@ class ProjectBomTests(unittest.TestCase):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
         self.project = SimpleNamespace(id="prj_1", name="power", display_name="Power board")
-        self.index: dict | None = {"sourceRevisionKey": "r1", "components": [component("R1", "Acme", "A-1"), component("R2", "Acme", "A-2")]}
+        self.index: dict | None = {"designKey": "r1", "components": [component("R1", "Acme", "A-1"), component("R2", "Acme", "A-2")]}
         self.queued: list[str] = []
         with self.store.connection() as conn:
             self.read(conn)
@@ -58,9 +58,10 @@ class ProjectBomTests(unittest.TestCase):
     def read(self, conn, *, force: bool = True) -> dict:
         return self.project_bom.refresh_tracked(
             conn, NOW, force=force, projects=lambda ids: [(self.project, ["admin", "designer"])] if "prj_1" in set(ids) else [],
-            existing=lambda _project: self.index, queue=self.queued.append, identities=lambda ids: {},
+            existing=lambda _project: self.index, queue=self.queued.append, identities=lambda ids: {}, failed=lambda _project: False,
         ) if self.tracked(conn) else self.project_bom.read(
-            conn, self.project, ["admin", "designer"], NOW, existing=lambda _project: self.index, queue=self.queued.append, identities=lambda ids: {},
+            conn, self.project, ["admin", "designer"], NOW, existing=lambda _project: self.index, queue=self.queued.append,
+            identities=lambda ids: {}, failed=lambda _project: False,
         )
 
     @staticmethod
@@ -73,7 +74,7 @@ class ProjectBomTests(unittest.TestCase):
     def test_a_new_revision_is_read_and_its_added_and_removed_parts_follow(self) -> None:
         with self.store.connection() as conn:
             self.assertEqual(self.tracked_mpns(conn), {"A-1", "A-2"})
-            self.index = {"sourceRevisionKey": "r2", "components": [component("R1", "Acme", "A-1"), component("R3", "Acme", "A-3")]}
+            self.index = {"designKey": "r2", "components": [component("R1", "Acme", "A-1"), component("R3", "Acme", "A-3")]}
             self.assertEqual(self.read(conn)["updated"], 1)
             self.tracking.sync_projects(conn)
             self.assertEqual(self.tracked_mpns(conn), {"A-1", "A-3"})
@@ -94,6 +95,36 @@ class ProjectBomTests(unittest.TestCase):
             self.assertEqual(self.read(conn)["reading"], 1)
         self.assertEqual(self.queued, ["prj_1"], "queued once, not on every read")
 
+    def test_a_failed_index_is_not_reported_as_reading(self) -> None:
+        self.index = None
+        with self.store.connection() as conn:
+            status = self.project_bom.read(
+                conn, self.project, ["admin"], NOW, existing=lambda _project: None, queue=self.queued.append,
+                identities=lambda ids: {}, failed=lambda _project: True,
+            )
+        self.assertEqual(status, "without_index", "a build that ended failed is terminal, not still being read")
+        self.assertEqual(self.queued, ["prj_1"], "the build is retried, but on the requeue interval")
+
+    def test_a_queue_that_fails_is_retried_on_the_next_read(self) -> None:
+        self.index = None
+        attempts: list[str] = []
+
+        def queue(project_id: str) -> None:
+            attempts.append(project_id)
+            raise RuntimeError("the worker is offline")
+
+        with self.store.connection() as conn:
+            first = self.project_bom.read(
+                conn, self.project, ["admin"], NOW, existing=lambda _project: None, queue=queue,
+                identities=lambda ids: {}, failed=lambda _project: False,
+            )
+            second = self.project_bom.read(
+                conn, self.project, ["admin"], NOW, existing=lambda _project: None, queue=queue,
+                identities=lambda ids: {}, failed=lambda _project: False,
+            )
+        self.assertEqual((first, second), ("reading", "reading"))
+        self.assertEqual(attempts, ["prj_1", "prj_1"], "a failed enqueue does not block the next try for six hours")
+
     def test_reads_are_spaced_out(self) -> None:
         with self.store.connection() as conn:
             self.read(conn)
@@ -101,7 +132,7 @@ class ProjectBomTests(unittest.TestCase):
 
     def test_an_unknown_spelling_on_a_new_revision_is_tracked_as_written_until_distributors_settle_it(self) -> None:
         with self.store.connection() as conn:
-            self.index = {"sourceRevisionKey": "r2", "components": [component("R1", "Acme", "A-1"), component("U1", "Newco Ltd", "N-1")]}
+            self.index = {"designKey": "r2", "components": [component("R1", "Acme", "A-1"), component("U1", "Newco Ltd", "N-1")]}
             self.read(conn)
             self.tracking.sync_projects(conn)
             made = conn.execute("SELECT m.name, m.provisional FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.mpn = 'N-1'").fetchall()
@@ -132,7 +163,7 @@ class ProjectBomTests(unittest.TestCase):
 
     def test_only_roles_that_see_the_project_see_the_change(self) -> None:
         with self.store.connection() as conn:
-            self.index = {"sourceRevisionKey": "r2", "components": [component("R1", "Acme", "A-1")]}
+            self.index = {"designKey": "r2", "components": [component("R1", "Acme", "A-1")]}
             self.read(conn)
             # The workspace lets designers see prj_1 and QA not; the change follows that, not the roles kept when it was made.
             with mock.patch.object(self.usage, "visible_project_ids", side_effect=lambda role: {"prj_1"} if role == "designer" else set()):

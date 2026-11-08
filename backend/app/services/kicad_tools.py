@@ -36,6 +36,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Protocol, Sequence
 
+from app.services import kicad_libraries
 from app.services.process_tree import group_popen_kwargs, kill_tree
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -243,11 +244,14 @@ class LocalTool:
         *,
         isolate: bool,
         cancel: CancelCheck | None = None,
+        libraries: "kicad_libraries.Snapshot | None" = None,
     ) -> None:
         self.name = name
         self._locate = locate
         self._isolate = isolate
         self._cancel = cancel
+        # None: the job's pinned snapshot of the KiCad path libraries. NO_LIBRARIES opts out.
+        self._libraries = libraries
 
     def __repr__(self) -> str:
         return f"LocalTool({self.name!r})"
@@ -262,10 +266,14 @@ class LocalTool:
         return path
 
     def with_cancel(self, cancel: CancelCheck | None) -> "LocalTool":
-        return LocalTool(self.name, self._locate, isolate=self._isolate, cancel=cancel)
+        return LocalTool(self.name, self._locate, isolate=self._isolate, cancel=cancel, libraries=self._libraries)
 
     def version(self) -> str:
-        """``--version`` output; ``unavailable`` (not cached) when not installed."""
+        """``--version`` output; ``unavailable``/``unknown`` when it cannot be read.
+
+        Only a resolved release is cached: a transient probe failure must not
+        pin ``unknown`` for the life of the process.
+        """
 
         path = self._locate()
         if not path:
@@ -285,8 +293,9 @@ class LocalTool:
             version = "unknown"
         finally:
             _recorded.reset(token)
-        with _versions_lock:
-            _versions[path] = version
+        if version != "unknown":
+            with _versions_lock:
+                _versions[path] = version
         return version
 
     def run(
@@ -299,7 +308,7 @@ class LocalTool:
         tee: bool = False,
     ) -> ToolResult:
         argv = [self.executable(), *(str(part) for part in args)]
-        base = dict(os.environ)
+        base = (self._libraries or kicad_libraries.current()).env(os.environ)
         base.update(env or {})
         if not self._isolate:
             return _record(
@@ -424,10 +433,54 @@ def rss_bytes(maxrss: int) -> int:
     return maxrss if sys.platform == "darwin" else maxrss * 1024
 
 
-def kicad_cli(settings: "Settings | None" = None) -> LocalTool:
-    """The kicad-cli every KiCad job runs, isolated per process."""
+def kicad_cli(
+    settings: "Settings | None" = None, *, libraries: "kicad_libraries.Snapshot | None" = None
+) -> LocalTool:
+    """The kicad-cli every KiCad job runs, isolated per process.
 
-    return LocalTool(KICAD_CLI, lambda: locate_kicad_cli(settings), isolate=True)
+    It runs with the KiCad path libraries the job pinned (``kicad_libraries.current``).
+    A caller whose result must not depend on what this server fetched passes
+    ``libraries=kicad_libraries.NO_LIBRARIES``.
+    """
+
+    return LocalTool(KICAD_CLI, lambda: locate_kicad_cli(settings), isolate=True, libraries=libraries)
+
+
+# kicad-cli rewrites a project's local settings when it loads a board or
+# schematic beside them (kicad-cli 10 writes layer and visibility state into
+# ``.kicad_prl``). Inside a server checkout that edit is a local change, and a
+# dirty checkout never fast-forwards on Sync.
+PROJECT_STATE_SUFFIXES = (".kicad_prl", ".kicad_pro")
+
+
+@contextmanager
+def project_state_kept(design_file: str | os.PathLike[str]) -> Iterator[None]:
+    """Put back the project files kicad-cli rewrites while it reads ``design_file`` in place.
+
+    Each ``.kicad_prl`` and ``.kicad_pro`` beside the file is restored byte for
+    byte, with its modification time, when the run changed it; one the run
+    created is removed. Runs on a scratch copy of the design do not need this.
+    """
+
+    folder = Path(design_file).parent
+    kept: dict[Path, tuple[bytes, int]] = {}
+    for path in folder.iterdir() if folder.is_dir() else ():
+        if path.suffix in PROJECT_STATE_SUFFIXES and path.is_file():
+            kept[path] = (path.read_bytes(), path.stat().st_mtime_ns)
+    try:
+        yield
+    finally:
+        for path in folder.iterdir() if folder.is_dir() else ():
+            if path.suffix in PROJECT_STATE_SUFFIXES and path.is_file() and path not in kept:
+                path.unlink(missing_ok=True)
+        for path, (data, mtime_ns) in kept.items():
+            try:
+                if path.is_file() and path.read_bytes() == data:
+                    continue
+                path.write_bytes(data)
+                os.utime(path, ns=(mtime_ns, mtime_ns))
+            except OSError:
+                continue
 
 
 # -- the set a job is handed ------------------------------------------------------
@@ -440,10 +493,12 @@ class KicadTools:
     cli: KicadTool | None
 
     @classmethod
-    def resolve(cls, settings: "Settings | None" = None) -> "KicadTools":
+    def resolve(
+        cls, settings: "Settings | None" = None, *, libraries: "kicad_libraries.Snapshot | None" = None
+    ) -> "KicadTools":
         """Locate the CLI now; a missing one is ``None``."""
 
-        cli = kicad_cli(settings)
+        cli = kicad_cli(settings, libraries=libraries)
         return cls(cli=cli if cli.available() else None)
 
     def with_cancel(self, cancel: CancelCheck | None) -> "KicadTools":
@@ -467,4 +522,5 @@ __all__ = [
     "kicad_cli",
     "kicad_cli_install_candidates",
     "locate_kicad_cli",
+    "project_state_kept",
 ]

@@ -1,6 +1,29 @@
 {
   "components": {
     "schemas": {
+      "AcceptMatchedRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "alias_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Alias Keys",
+            "type": "array"
+          },
+          "part_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Part Ids",
+            "type": "array"
+          }
+        },
+        "title": "AcceptMatchedRequest",
+        "type": "object"
+      },
       "AcceptProjectImportProposalRequest": {
         "properties": {
           "asset_links": {
@@ -1742,6 +1765,11 @@
             "title": "Auth Enabled",
             "type": "boolean"
           },
+          "comment_live_enabled": {
+            "default": true,
+            "title": "Comment Live Enabled",
+            "type": "boolean"
+          },
           "dev_mode": {
             "title": "Dev Mode",
             "type": "boolean"
@@ -1764,6 +1792,11 @@
           "sim_studio_enabled": {
             "default": false,
             "title": "Sim Studio Enabled",
+            "type": "boolean"
+          },
+          "supply_enabled": {
+            "default": true,
+            "title": "Supply Enabled",
             "type": "boolean"
           },
           "workspace_name": {
@@ -5861,6 +5894,44 @@
         "title": "CheckProgress",
         "type": "object"
       },
+      "CheckResult": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "library": {
+            "$ref": "#/components/schemas/LibraryView"
+          },
+          "moved": {
+            "title": "Moved",
+            "type": "boolean"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "remoteCommit": {
+            "title": "Remotecommit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "library",
+          "remoteCommit",
+          "moved",
+          "queued"
+        ],
+        "title": "CheckResult",
+        "type": "object"
+      },
       "CheckStarted": {
         "additionalProperties": true,
         "properties": {
@@ -9016,6 +9087,21 @@
             "title": "Calls Today",
             "type": "integer"
           },
+          "catalogue_error": {
+            "title": "Catalogue Error",
+            "type": "string"
+          },
+          "catalogue_failed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalogue Failed At"
+          },
           "connector_id": {
             "title": "Connector Id",
             "type": "string"
@@ -9113,6 +9199,8 @@
           "last_ok_at",
           "last_error_code",
           "last_error_at",
+          "catalogue_failed_at",
+          "catalogue_error",
           "listings",
           "late",
           "failing",
@@ -11838,6 +11926,11 @@
             "title": "Notes",
             "type": "array"
           },
+          "page_url": {
+            "description": "The first distributor page among its sources, empty when none has one.",
+            "title": "Page Url",
+            "type": "string"
+          },
           "part_id": {
             "anyOf": [
               {
@@ -11901,6 +11994,7 @@
           "sku",
           "notes",
           "sources",
+          "page_url",
           "asked",
           "part_id",
           "stock",
@@ -18385,6 +18479,388 @@
         "title": "LibraryComponentOf",
         "type": "object"
       },
+      "LibraryCreate": {
+        "properties": {
+          "checkIntervalSeconds": {
+            "default": 86400,
+            "title": "Checkintervalseconds",
+            "type": "integer"
+          },
+          "git": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "ref": {
+            "default": "",
+            "title": "Ref",
+            "type": "string"
+          },
+          "subdir": {
+            "default": "",
+            "title": "Subdir",
+            "type": "string"
+          },
+          "updatePolicy": {
+            "default": "follow",
+            "title": "Updatepolicy",
+            "type": "string"
+          },
+          "variables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "variables"
+        ],
+        "title": "LibraryCreate",
+        "type": "object"
+      },
+      "LibraryList": {
+        "properties": {
+          "checkIntervals": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Checkintervals",
+            "type": "array"
+          },
+          "libraries": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryView"
+            },
+            "title": "Libraries",
+            "type": "array"
+          },
+          "pathLibrariesEnabled": {
+            "title": "Pathlibrariesenabled",
+            "type": "boolean"
+          },
+          "usage": {
+            "items": {
+              "$ref": "#/components/schemas/VariableUsage"
+            },
+            "title": "Usage",
+            "type": "array"
+          }
+        },
+        "required": [
+          "libraries",
+          "usage",
+          "pathLibrariesEnabled",
+          "checkIntervals"
+        ],
+        "title": "LibraryList",
+        "type": "object"
+      },
+      "LibraryUpdate": {
+        "properties": {
+          "checkIntervalSeconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkintervalseconds"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "subdir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subdir"
+          },
+          "updatePolicy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatepolicy"
+          },
+          "variables": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variables"
+          }
+        },
+        "title": "LibraryUpdate",
+        "type": "object"
+      },
+      "LibraryView": {
+        "description": "A library as the console shows it.\n\n``ready`` is whether it serves a version now (the disk decides); ``state`` is\nthe last fetch's report. ``servedCommit`` is what is bound, ``remoteCommit``\nwhat the last check saw the ref at.",
+        "properties": {
+          "checkIntervalSeconds": {
+            "title": "Checkintervalseconds",
+            "type": "integer"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "etag": {
+            "title": "Etag",
+            "type": "string"
+          },
+          "fetchedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetchedat"
+          },
+          "fetchedCommit": {
+            "title": "Fetchedcommit",
+            "type": "string"
+          },
+          "git": {
+            "title": "Git",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "lastCheckError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastcheckerror"
+          },
+          "lastCheckedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastcheckedat"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "overriddenVariables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Overriddenvariables",
+            "type": "array"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "pinnedCommit": {
+            "title": "Pinnedcommit",
+            "type": "string"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "projectsUsing": {
+            "default": 0,
+            "title": "Projectsusing",
+            "type": "integer"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "remoteCommit": {
+            "title": "Remotecommit",
+            "type": "string"
+          },
+          "rowVersion": {
+            "title": "Rowversion",
+            "type": "integer"
+          },
+          "servedCommit": {
+            "title": "Servedcommit",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sizebytes"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "subdir": {
+            "title": "Subdir",
+            "type": "string"
+          },
+          "updatePolicy": {
+            "title": "Updatepolicy",
+            "type": "string"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          },
+          "updatedBy": {
+            "title": "Updatedby",
+            "type": "string"
+          },
+          "variables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "variables",
+          "git",
+          "ref",
+          "subdir",
+          "path",
+          "updatePolicy",
+          "pinnedCommit",
+          "checkIntervalSeconds",
+          "remoteCommit",
+          "fetchedCommit",
+          "servedCommit",
+          "state",
+          "updatedBy",
+          "ready",
+          "overriddenVariables",
+          "etag",
+          "rowVersion"
+        ],
+        "title": "LibraryView",
+        "type": "object"
+      },
       "LifecycleInsights": {
         "additionalProperties": true,
         "properties": {
@@ -19571,6 +20047,20 @@
           "text"
         ],
         "title": "MarketSignal",
+        "type": "object"
+      },
+      "MatchedAccepted": {
+        "additionalProperties": true,
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "title": "MatchedAccepted",
         "type": "object"
       },
       "MateOut": {
@@ -26455,7 +26945,7 @@
       },
       "ProjectSupply": {
         "additionalProperties": true,
-        "description": "How a project stands in supply, from its stored BOM. Without a BOM read, only ``available``, the variants, releases and notes.",
+        "description": "How a project stands in supply, from its stored BOM. Without parts, only ``available``, ``has_usage``, the variants, releases and notes.",
         "properties": {
           "attrition_percent": {
             "anyOf": [
@@ -26529,6 +27019,23 @@
             ],
             "description": "The days left out because one price was read wrong.",
             "title": "Cost History Left Out"
+          },
+          "has_schematic": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Without a BOM read: whether the project has a schematic to read it from.",
+            "title": "Has Schematic"
+          },
+          "has_usage": {
+            "description": "Whether the project's BOM has been read, even when it has no fitted parts.",
+            "title": "Has Usage",
+            "type": "boolean"
           },
           "money": {
             "anyOf": [
@@ -26616,6 +27123,7 @@
         },
         "required": [
           "available",
+          "has_usage",
           "variant",
           "variants",
           "releases",
@@ -27011,6 +27519,11 @@
       "ProjectTrackingState": {
         "additionalProperties": true,
         "properties": {
+          "has_schematic": {
+            "default": true,
+            "title": "Has Schematic",
+            "type": "boolean"
+          },
           "has_usage": {
             "title": "Has Usage",
             "type": "boolean"
@@ -28940,6 +29453,88 @@
         "title": "ReliabilityBin",
         "type": "object"
       },
+      "RemoteCheck": {
+        "properties": {
+          "git": {
+            "maxLength": 2000,
+            "title": "Git",
+            "type": "string"
+          },
+          "ref": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "git"
+        ],
+        "title": "RemoteCheck",
+        "type": "object"
+      },
+      "RemoteCheckResult": {
+        "properties": {
+          "branches": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Branches",
+            "type": "array"
+          },
+          "defaultBranch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defaultbranch"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "reachable": {
+            "title": "Reachable",
+            "type": "boolean"
+          },
+          "refFound": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reffound"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reachable"
+        ],
+        "title": "RemoteCheckResult",
+        "type": "object"
+      },
       "RenderHighlight": {
         "properties": {
           "components": {
@@ -30436,6 +31031,12 @@
           "currency": {
             "title": "Currency",
             "type": "string"
+          },
+          "marketplace": {
+            "default": false,
+            "description": "Only marketplace or assembly offers: shown, never counted in the part's stock.",
+            "title": "Marketplace",
+            "type": "boolean"
           },
           "name": {
             "title": "Name",
@@ -32604,6 +33205,11 @@
             "title": "Name",
             "type": "string"
           },
+          "page_url": {
+            "description": "The suggestion's page at this distributor, empty when its number does not give one.",
+            "title": "Page Url",
+            "type": "string"
+          },
           "provider": {
             "title": "Provider",
             "type": "string"
@@ -32611,7 +33217,8 @@
         },
         "required": [
           "provider",
-          "name"
+          "name",
+          "page_url"
         ],
         "title": "SuggestionSource",
         "type": "object"
@@ -33945,6 +34552,23 @@
             "title": "Catalogue Available",
             "type": "boolean"
           },
+          "catalogue_error": {
+            "description": "Why the published catalogue last could not be read.",
+            "title": "Catalogue Error",
+            "type": "string"
+          },
+          "catalogue_failed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the published catalogue last could not be read; the import waits a full interval from it.",
+            "title": "Catalogue Failed At"
+          },
           "cooldown_until": {
             "anyOf": [
               {
@@ -34224,6 +34848,8 @@
           "last_ok_at",
           "last_error_code",
           "last_error_at",
+          "catalogue_failed_at",
+          "catalogue_error",
           "cooldown_until",
           "block_streak",
           "slow_until",
@@ -37224,6 +37850,11 @@
             "title": "Packaging Inferred",
             "type": "boolean"
           },
+          "page_url": {
+            "description": "The distributor's page for it, even before it has been read.",
+            "title": "Page Url",
+            "type": "string"
+          },
           "part": {
             "anyOf": [
               {
@@ -37269,6 +37900,7 @@
           "connector_name",
           "provider",
           "sku",
+          "page_url",
           "raw_mpn",
           "raw_manufacturer",
           "match_state",
@@ -40946,6 +41578,58 @@
         "title": "ValidationSummary",
         "type": "object"
       },
+      "VariableCount": {
+        "additionalProperties": true,
+        "properties": {
+          "models": {
+            "title": "Models",
+            "type": "integer"
+          },
+          "variable": {
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variable",
+          "models"
+        ],
+        "title": "VariableCount",
+        "type": "object"
+      },
+      "VariableUsage": {
+        "properties": {
+          "bound": {
+            "title": "Bound",
+            "type": "boolean"
+          },
+          "models": {
+            "title": "Models",
+            "type": "integer"
+          },
+          "projects": {
+            "title": "Projects",
+            "type": "integer"
+          },
+          "sheets": {
+            "title": "Sheets",
+            "type": "integer"
+          },
+          "variable": {
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variable",
+          "projects",
+          "models",
+          "sheets",
+          "bound"
+        ],
+        "title": "VariableUsage",
+        "type": "object"
+      },
       "VariantCatalogDiagnostic": {
         "additionalProperties": true,
         "description": "A catalog-builder diagnostic, in today's key order.",
@@ -41145,6 +41829,40 @@
           "required_artifacts"
         ],
         "title": "VendorReadiness",
+        "type": "object"
+      },
+      "VersionView": {
+        "properties": {
+          "commit": {
+            "title": "Commit",
+            "type": "string"
+          },
+          "fetchedAt": {
+            "format": "date-time",
+            "title": "Fetchedat",
+            "type": "string"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "requestedBy": {
+            "title": "Requestedby",
+            "type": "string"
+          },
+          "serving": {
+            "title": "Serving",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "commit",
+          "ref",
+          "fetchedAt",
+          "requestedBy",
+          "serving"
+        ],
+        "title": "VersionView",
         "type": "object"
       },
       "ViewerSupportFile": {
@@ -41426,8 +42144,21 @@
             ],
             "title": "Message"
           },
+          "missingModels": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VariableCount"
+            },
+            "title": "Missingmodels",
+            "type": "array"
+          },
           "readiness": {
             "$ref": "#/components/schemas/StatusReadiness"
+          },
+          "refreshing": {
+            "default": false,
+            "title": "Refreshing",
+            "type": "boolean"
           },
           "schema": {
             "title": "Schema",
@@ -41444,6 +42175,14 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "unresolvedVariables": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VariableCount"
+            },
+            "title": "Unresolvedvariables",
+            "type": "array"
           }
         },
         "required": [
@@ -59599,6 +60338,550 @@
         ]
       }
     },
+    "/api/v1/settings/kicad-libraries": {
+      "get": {
+        "description": "The declared libraries, the variables boards use, and which of those a library binds.",
+        "operationId": "list_libraries",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List KiCad path libraries",
+        "tags": [
+          "settings"
+        ]
+      },
+      "post": {
+        "description": "Declare a library and queue its first fetch. A path library must sit under the configured mount root.",
+        "operationId": "create_library",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Declare a KiCad path library",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/check": {
+      "post": {
+        "operationId": "check_remote",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteCheck"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteCheckResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check that a repository and ref exist",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}": {
+      "delete": {
+        "description": "Forget the library and stop serving it; its files go after a grace period. A path library's folder is left alone.",
+        "operationId": "delete_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove a KiCad path library",
+        "tags": [
+          "settings"
+        ]
+      },
+      "patch": {
+        "description": "Change the variables, ref, subfolder, update policy or check interval.\n\nA new ref or subfolder fetches again; what is served stays bound until the\nnew version is published.",
+        "operationId": "update_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change a KiCad path library",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/check": {
+      "post": {
+        "description": "The scheduled check, on demand. A following library fetches a moved ref; a pinned one only reports it.",
+        "operationId": "check_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check a library's remote now",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/fetch": {
+      "post": {
+        "description": "Retry a failed fetch, or restore a library whose files were lost.",
+        "operationId": "fetch_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fetch a KiCad path library again",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/freeze": {
+      "post": {
+        "operationId": "freeze_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pin a library at the commit it serves now",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/refresh": {
+      "post": {
+        "description": "A path library's content is only picked up when asked: boards using it refresh their models.",
+        "operationId": "refresh_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read a path library's folder again",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/unfreeze": {
+      "post": {
+        "operationId": "unfreeze_library",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Let a library follow its ref again",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/update": {
+      "post": {
+        "description": "Move to where the ref points now. A pinned library is pinned at that commit.",
+        "operationId": "update_now",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fetch a library's ref as it is now",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/versions": {
+      "get": {
+        "operationId": "library_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VersionView"
+                  },
+                  "title": "Response Library Versions",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The versions a library has served",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/kicad-libraries/{name}/versions/{commit}/use": {
+      "post": {
+        "description": "Go back (or forward) to a version the library has served: the way out of a bad upstream commit.",
+        "operationId": "use_version",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "commit",
+            "required": true,
+            "schema": {
+              "title": "Commit",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pin a library at an earlier version",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
     "/api/v1/settings/mcp": {
       "get": {
         "operationId": "get_mcp_governance",
@@ -65668,6 +66951,48 @@
           }
         },
         "summary": "Reject Listing",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/review/matched/accept": {
+      "post": {
+        "description": "Keep spellings Prism learned and makers it settled, one or many: they leave Matched by Prism.",
+        "operationId": "accept_matched",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptMatchedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchedAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Matched",
         "tags": [
           "supply"
         ]

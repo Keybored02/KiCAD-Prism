@@ -137,6 +137,12 @@ these only for a host run or a pinned install:
 # kicad-cli. Empty: PATH, then the usual KiCad install locations.
 # A set path is used as given, with no fallback. KICAD_CLI is a legacy name.
 KICAD_CLI_PATH=
+# A mounted folder that libraries added as a path in Settings > KiCad libraries must
+# live under. Empty: path libraries are off; libraries fetched from git need no setting.
+# It must not be, hold or sit inside KICAD_PROJECTS_ROOT; Prism refuses to start if it does.
+PRISM_KICAD_LIBRARY_MOUNT_ROOT=
+# Largest library a fetch writes, in GB (the download, and the files with their LFS objects).
+PRISM_KICAD_LIBRARY_MAX_GB=10
 ```
 
 Each kicad-cli run gets its own temporary directory (KiCad's instance lock)
@@ -271,7 +277,9 @@ running the write twice.
 
 - The same key with a different body answers `422` `idempotency-key-reused`.
 - A retry that arrives while the first request is still running answers `409`
-  `idempotency-key-in-progress`.
+  `idempotency-key-in-progress`. A claim whose request never finished (for
+  example, the process died) is released after 10 minutes, and the next retry
+  runs the write.
 - An invalid key answers `400` `idempotency-key-invalid`.
 - A request whose body exceeds 1 MiB is not covered: it passes through and
   carries `Idempotency-Key-Status: skipped-large-body`.
